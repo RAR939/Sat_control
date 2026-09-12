@@ -17,13 +17,12 @@ import react from 'eslint-plugin-react';
 import reactHooks from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
 import prettierConfig from 'eslint-config-prettier';
+import globals from 'globals'; // <-- добавили
 
 export default [
-  // Базовые рекомендованные правила JS от самого ESLint
   js.configs.recommended,
 
   {
-    // Применяем эту конфигурацию только к файлам исходного кода фронтенда
     files: ['src/**/*.{ts,tsx}'],
 
     languageOptions: {
@@ -32,7 +31,11 @@ export default [
         ecmaVersion: 'latest',
         sourceType: 'module',
         ecmaFeatures: { jsx: true },
-        // project: './tsconfig.json', // раскомментировать для type-aware правил (медленнее, но точнее)
+      },
+      // Говорим ESLint, что код выполняется в браузере —
+      // иначе document/window/localStorage и т.п. считаются "неопределёнными"
+      globals: {
+        ...globals.browser,
       },
     },
 
