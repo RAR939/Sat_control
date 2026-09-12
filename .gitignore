@@ -1,56 +1,7 @@
-# .gitignore
-#
-# Игнорируем всё, что либо генерируется автоматически (можно пересоздать
-# командой install/build), либо специфично для конкретной машины/секретно.
-# Исходный код, конфиги линтера/Prettier/TS, компоненты — версионируются как обычно.
-
-# --- Зависимости ---
-# Восстанавливаются командой `npm install` из package.json + package-lock.json
 node_modules/
-
-# --- Сборка ---
-# Генерируется командой `npm run build`, устаревает при каждом коммите исходников
 dist/
-dist-ssr/
 build/
 
-# --- Переменные окружения ---
-# Локальная конфигурация и потенциальные секреты (адреса API, ключи) —
-# у каждого разработчика/окружения свои значения, в репозиторий не идут
-.env
-.env.local
-.env.*.local
-.env.development.local
-.env.production.local
-
-# --- Логи ---
-logs/
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-
-# --- Кэши инструментов ---
-.eslintcache
-.prettiercache
-.vite/
-node_modules/.vite/
-
-# --- Тесты / покрытие кода ---
-coverage/
-
-# --- Редакторы / IDE ---
-.vscode/*
-!.vscode/extensions.json
-.idea/
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-
-# --- Операционная система ---
 .DS_Store
 Thumbs.db
 Desktop.ini
