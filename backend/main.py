@@ -6,6 +6,7 @@ from typing import Optional, List, Dict
 import copy
 import json
 import re
+from pathlib import Path
 from geometry import snapshot, validate, load
 from router import compute_routes_for_snapshot
 from analyzer import run_full_simulation, compare_scenarios, analyze_robustness, auto_tune_configuration
@@ -23,6 +24,10 @@ app.add_middleware(
 current_scenario = {}
 saved_variants = {}
 
+# Папка для постоянного хранения вариантов конфигураций
+STORAGE_DIR = Path("saved_variants")
+STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+
 class ScenarioPayload(BaseModel):
     scenario_data: dict
 
@@ -31,6 +36,33 @@ class ConfigUpdate(BaseModel):
     isl_range_km: Optional[float] = None
     planes_update: Optional[List[Dict]] = None
     failures_update: Optional[List[Dict]] = None
+    save_as: Optional[str] = None  # Имя для мгновенного сохранения варианта на диск
+
+def _safe_filename(name: str) -> str:
+    """Очищает имя файла от недопустимых символов."""
+    return re.sub(r'[^A-Za-z0-9._-]', '_', name) or 'export'
+
+def get_variant(name: str) -> dict:
+    """Ищет вариант в памяти, а если сервер перезапускался — подгружает с диска."""
+    if name in saved_variants:
+        return saved_variants[name]
+    
+    file_path = STORAGE_DIR / f"{_safe_filename(name)}.json"
+    if file_path.exists():
+        data = json.loads(file_path.read_text(encoding="utf-8"))
+        saved_variants[name] = data
+        return data
+        
+    raise HTTPException(status_code=404, detail=f"Вариант '{name}' не найден ни в памяти, ни на диске")
+
+def _download_json(data: dict, filename: str) -> Response:
+    """Генерирует ответ с заголовками для скачивания файла браузером."""
+    body = json.dumps(data, ensure_ascii=False, indent=2).encode('utf-8')
+    return Response(
+        content=body,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{_safe_filename(filename)}"'},
+    )
 
 @app.post("/api/load", summary="Загрузка штатного сценария")
 def api_load(payload: ScenarioPayload):
@@ -42,7 +74,7 @@ def api_load(payload: ScenarioPayload):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.post("/api/update-config", summary="Изменение параметров конфигурации")
+@app.post("/api/update-config", summary="Изменение параметров конфигурации (и опциональное сохранение)")
 def api_update_config(cfg: ConfigUpdate):
     global current_scenario
     if not current_scenario:
@@ -68,7 +100,16 @@ def api_update_config(cfg: ConfigUpdate):
                         p_map[pid]['phase_deg'] = float(p_up['phase_deg']) % 360.0
                         
         validate(current_scenario)
-        return {"status": "updated", "scenario": current_scenario}
+        
+        saved_info = None
+        if cfg.save_as:
+            safe_name = _safe_filename(cfg.save_as)
+            saved_variants[cfg.save_as] = copy.deepcopy(current_scenario)
+            file_path = STORAGE_DIR / f"{safe_name}.json"
+            file_path.write_text(json.dumps(current_scenario, ensure_ascii=False, indent=2), encoding="utf-8")
+            saved_info = {"variant": cfg.save_as, "file_path": str(file_path)}
+            
+        return {"status": "updated", "scenario": current_scenario, "saved": saved_info}
     except Exception as e:
         current_scenario = backup
         raise HTTPException(status_code=400, detail=f"Ошибка валидации данных: {str(e)}")
@@ -94,20 +135,52 @@ def api_snapshot(t_s: int):
         "visible_satellites_per_client": snap.get('visible_sats', {})
     }
 
-@app.post("/api/save-variant/{name}", summary="Сохранение варианта проекта")
+@app.get("/api/snapshot/step/{current_t_s}/{direction}", summary="Переход на соседний временной кадр (вперед/назад)")
+def api_snapshot_step(current_t_s: int, direction: str):
+    if not current_scenario:
+        raise HTTPException(status_code=400, detail="No scenario loaded")
+        
+    step = current_scenario['environment']['step_s']
+    horizon = current_scenario['environment']['horizon_s']
+    
+    if direction == "next":
+        new_t_s = current_t_s + step
+    elif direction == "prev":
+        new_t_s = current_t_s - step
+    else:
+        raise HTTPException(status_code=400, detail="Direction must be 'next' or 'prev'")
+        
+    # Защита от выхода за границы симуляции
+    new_t_s = max(0, min(new_t_s, horizon))
+    
+    # Получаем стандартный снапшот и добавляем флаги границ для интерфейса
+    result = api_snapshot(new_t_s)
+    result["is_start"] = (new_t_s == 0)
+    result["is_end"] = (new_t_s == horizon)
+    
+    return result
+
+@app.post("/api/save-variant/{name}", summary="Сохранение варианта проекта на диск")
 def api_save_variant(name: str):
     if not current_scenario:
         raise HTTPException(status_code=400, detail="No scenario loaded")
+    
+    safe_name = _safe_filename(name)
     saved_variants[name] = copy.deepcopy(current_scenario)
-    return {"status": "saved", "variant": name}
+    
+    # Физическая запись на жесткий диск
+    file_path = STORAGE_DIR / f"{safe_name}.json"
+    file_path.write_text(json.dumps(current_scenario, ensure_ascii=False, indent=2), encoding="utf-8")
+    
+    return {"status": "saved_to_disk", "variant": name, "file_path": str(file_path)}
 
 @app.get("/api/compare/{name1}/{name2}", summary="Сравнение двух сохраненных вариантов")
 def api_compare(name1: str, name2: str):
-    if name1 not in saved_variants or name2 not in saved_variants:
-        raise HTTPException(status_code=404, detail="One or both variants not found")
+    v1 = get_variant(name1)
+    v2 = get_variant(name2)
     
-    res1 = run_full_simulation(saved_variants[name1])
-    res2 = run_full_simulation(saved_variants[name2])
+    res1 = run_full_simulation(v1)
+    res2 = run_full_simulation(v2)
     diff = compare_scenarios(res1, res2)
     return {"variant_1": res1["analysis"], "variant_2": res2["analysis"], "comparison": diff}
 
@@ -119,9 +192,6 @@ def api_analysis():
 
 @app.get("/api/robustness", summary="Доп. задача 5: Анализ устойчивости и рейтинг уязвимых спутников")
 def api_robustness(branch: int = 1):
-    """branch -- сколько спутников отказывает одновременно в одном прогоне
-    (1 по умолчанию; branch>=2 переберёт комбинации и может быть медленным
-    на большой группировке -- см. resilience.analyze_resilience)."""
     if not current_scenario:
         raise HTTPException(status_code=400, detail="No scenario loaded")
     rating = analyze_robustness(current_scenario, branch=branch)
@@ -134,20 +204,6 @@ def api_auto_tune(random_samples: int = 10, seed: int = 42):
     best = auto_tune_configuration(current_scenario, random_samples=random_samples, seed=seed)
     return {"best_configuration": best}
 
-def _safe_filename(name: str) -> str:
-    """Убирает всё, кроме букв/цифр/._- , чтобы имя нельзя было использовать
-    для path traversal или для инъекции лишних заголовков в Content-Disposition."""
-    return re.sub(r'[^A-Za-z0-9._-]', '_', name) or 'export'
-
-def _download_json(data: dict, filename: str) -> Response:
-    """Отдаёт data как JSON-файл на скачивание (Content-Disposition: attachment)."""
-    body = json.dumps(data, ensure_ascii=False, indent=2).encode('utf-8')
-    return Response(
-        content=body,
-        media_type="application/json",
-        headers={"Content-Disposition": f'attachment; filename="{_safe_filename(filename)}"'},
-    )
-
 @app.get("/api/export", summary="Экспорт полного анализа текущего сценария (скачивание JSON)")
 def api_export():
     if not current_scenario:
@@ -158,17 +214,16 @@ def api_export():
 
 @app.get("/api/export/variant/{name}", summary="Экспорт полного анализа сохранённого варианта (скачивание JSON)")
 def api_export_variant(name: str):
-    if name not in saved_variants:
-        raise HTTPException(status_code=404, detail="Variant not found")
-    result = run_full_simulation(saved_variants[name])
+    v = get_variant(name)
+    result = run_full_simulation(v)
     return _download_json(result, f"analysis_variant_{name}.json")
 
 @app.get("/api/export/compare/{name1}/{name2}", summary="Экспорт сравнения двух сохранённых вариантов (скачивание JSON)")
 def api_export_compare(name1: str, name2: str):
-    if name1 not in saved_variants or name2 not in saved_variants:
-        raise HTTPException(status_code=404, detail="One or both variants not found")
-    res1 = run_full_simulation(saved_variants[name1])
-    res2 = run_full_simulation(saved_variants[name2])
+    v1 = get_variant(name1)
+    v2 = get_variant(name2)
+    res1 = run_full_simulation(v1)
+    res2 = run_full_simulation(v2)
     diff = compare_scenarios(res1, res2)
     payload = {"variant_1": res1["analysis"], "variant_2": res2["analysis"], "comparison": diff}
     return _download_json(payload, f"compare_{name1}_vs_{name2}.json")
