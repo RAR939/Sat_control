@@ -62,3 +62,9 @@ Desktop.ini
 *.local
 .temp/
 .tmp/
+
+node_modules/
+dist/
+build/
+
+.DS_Store
