@@ -1,8 +1,11 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from pydantic import BaseModel
 from typing import Optional, List, Dict
 import copy
+import json
+import re
 from geometry import snapshot, validate, load
 from router import compute_routes_for_snapshot
 from analyzer import run_full_simulation, compare_scenarios, analyze_robustness, auto_tune_configuration
@@ -130,3 +133,42 @@ def api_auto_tune(random_samples: int = 10, seed: int = 42):
         raise HTTPException(status_code=400, detail="No scenario loaded")
     best = auto_tune_configuration(current_scenario, random_samples=random_samples, seed=seed)
     return {"best_configuration": best}
+
+def _safe_filename(name: str) -> str:
+    """Убирает всё, кроме букв/цифр/._- , чтобы имя нельзя было использовать
+    для path traversal или для инъекции лишних заголовков в Content-Disposition."""
+    return re.sub(r'[^A-Za-z0-9._-]', '_', name) or 'export'
+
+def _download_json(data: dict, filename: str) -> Response:
+    """Отдаёт data как JSON-файл на скачивание (Content-Disposition: attachment)."""
+    body = json.dumps(data, ensure_ascii=False, indent=2).encode('utf-8')
+    return Response(
+        content=body,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{_safe_filename(filename)}"'},
+    )
+
+@app.get("/api/export", summary="Экспорт полного анализа текущего сценария (скачивание JSON)")
+def api_export():
+    if not current_scenario:
+        raise HTTPException(status_code=400, detail="No scenario loaded")
+    result = run_full_simulation(current_scenario)
+    meta_id = current_scenario.get('meta', {}).get('id', 'scenario')
+    return _download_json(result, f"analysis_{meta_id}.json")
+
+@app.get("/api/export/variant/{name}", summary="Экспорт полного анализа сохранённого варианта (скачивание JSON)")
+def api_export_variant(name: str):
+    if name not in saved_variants:
+        raise HTTPException(status_code=404, detail="Variant not found")
+    result = run_full_simulation(saved_variants[name])
+    return _download_json(result, f"analysis_variant_{name}.json")
+
+@app.get("/api/export/compare/{name1}/{name2}", summary="Экспорт сравнения двух сохранённых вариантов (скачивание JSON)")
+def api_export_compare(name1: str, name2: str):
+    if name1 not in saved_variants or name2 not in saved_variants:
+        raise HTTPException(status_code=404, detail="One or both variants not found")
+    res1 = run_full_simulation(saved_variants[name1])
+    res2 = run_full_simulation(saved_variants[name2])
+    diff = compare_scenarios(res1, res2)
+    payload = {"variant_1": res1["analysis"], "variant_2": res2["analysis"], "comparison": diff}
+    return _download_json(payload, f"compare_{name1}_vs_{name2}.json")
