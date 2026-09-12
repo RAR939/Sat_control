@@ -1,3 +1,321 @@
+# CosmoSats Frontend — контекст проекта для Claude Code
+
+## ⚠️ ГРАНИЦА ОТВЕТСТВЕННОСТИ
+**Мы работаем ТОЛЬКО с фронтендом (папка `frontend/`).**
+Бэкенд (`backend/`, FastAPI, Python) делают коллеги по команде — **не трогать,
+не редактировать, не рефакторить их код**, даже если он кажется неидеальным
+или неполным. Если для работы фронтенда чего-то не хватает на бэкенде —
+это обсуждается с командой, а не чинится самостоятельно правкой их файлов.
+Любые правки вне `frontend/` — под явным запретом без отдельного запроса
+пользователя.
+
+## Задача
+КосмоХакатон 2026 «Проектирование устойчивой спутниковой группировки».
+Веб-сервис для проектирования/анализа группировки связи: 48 спутников,
+орбита 550 км, 3 плоскости по 16 аппаратов, запуск в 3 очереди (launch_stage).
+Считает покрытие северных наземных пунктов, маршрутизацию до шлюза через
+сеть спутников, обрабатывает отказы, сравнивает конфигурации.
+Целевая доступность (target_availability) — 90%.
+
+Репозиторий: https://github.com/RAR939/Sat_control
+
+Дедлайн крайне сжатый — приоритет: рабочий MVP по п.7 ТЗ (фронтенд), не
+идеальная архитектура.
+
+## Стек и уже принятые решения
+- React + TypeScript, сборка на Vite.
+- ESLint (flat config, `eslint.config.js`) + Prettier — раздельная ответственность
+  (ESLint = баги/практики, Prettier = форматирование), eslint-config-prettier
+  гасит конфликтующие правила. ESLint держим на 9.x (не 10.x) — плагины
+  eslint-plugin-react/react-hooks пока официально не поддерживают ESLint 10
+  (открытые issues в их репозиториях на сентябрь 2026).
+- Tailwind CSS 4 через `@tailwindcss/vite` плагин (не PostCSS-конфиг).
+- TanStack Query поверх api/client.ts — ещё предстоит подключить.
+- Zustand для state management — ещё предстоит подключить.
+- **3D-глобус (react-globe.gl/three.js), не 2D-карта.** ⚠️ Это ПЕРЕСМОТР более
+  раннего решения: изначально здесь стояло "2D-карта в приоритете, 3D устарел",
+  и был реализован 2D canvas-рендер (equirectangular). Пользователь явно
+  попросил вернуться к 3D-глобусу ради наглядности — подтверждено отдельным
+  вопросом (не молчаливая замена). Компонент — `src/components/Globe3D.tsx`,
+  текстуры глобуса/фона взяты локально из `node_modules/three-globe/example/img/`
+  и лежат в `frontend/public/globe/` (не грузим их с внешнего CDN — демо должно
+  работать офлайн). Если это решение снова поменяется — не молчать, спросить.
+- Весь код — с подробными комментариями (нужна документация проекта в конце).
+- Не переименовывать поля бэкенда "покрасивее" — фронт обязан слать точные
+  ключи из схемы cosmo-A-1.0, иначе Pydantic на бэке отклонит запрос.
+
+## Бэкенд теперь доступен локально для справки
+
+Реальный код бэкенда подтянут в `backend/` и `data/` в корне репозитория
+(из `https://github.com/RAR939/Sat_control`, только исходники — без venv/
+`__pycache__`, они добавлены в `.gitignore`). Это **только для чтения** —
+граница ответственности выше не изменилась, `backend/` не редактируем.
+Remote `backend-upstream` добавлен в git для повторной синхронизации при
+необходимости.
+
+## Реальный контракт бэкенда (проверено через реальные файлы в репозитории)
+
+### Важно: НЕ отдельные сценарии по id
+Бэкенд хранит ОДИН активный сценарий в памяти (`current_scenario`), плюс
+именованные сохранённые варианты (`saved_variants`) для сравнения. Это не
+REST-ресурсы с CRUD по id, а глобальное состояние + операции над ним.
+
+### Эндпоинты (backend/main.py)
+| Метод | Путь | Описание |
+|---|---|---|
+| POST | `/api/load` | Загрузить сценарий как активный (`{scenario_data: Scenario}`) |
+| POST | `/api/update-config` | Частично изменить активный сценарий (launch_stage, isl_range_km, planes_update, failures_update) |
+| GET | `/api/snapshot/{t_s}` | Состояние сети на момент времени t_s |
+| POST | `/api/save-variant/{name}` | Сохранить активный сценарий как именованный вариант |
+| GET | `/api/compare/{name1}/{name2}` | Сравнить два сохранённых варианта |
+| GET | `/api/analysis` | Полный анализ (`run_full_simulation()`) |
+| GET | `/api/robustness` | Анализ устойчивости (п.5 ТЗ, доп.) |
+| GET | `/api/auto-tune` | Автоподбор конфигурации (п.6 ТЗ, доп.) |
+| GET | `/api/export` | Экспорт анализа активного сценария (скачивание JSON-файла) |
+| GET | `/api/export/variant/{name}` | Экспорт анализа сохранённого варианта (скачивание JSON) |
+| GET | `/api/export/compare/{name1}/{name2}` | Экспорт сравнения двух вариантов (скачивание JSON) |
+
+⚠️ **Ограничение бэкенда:** даже если в `ground_sites` несколько `gateway`,
+симуляция и роутинг (`analyzer.py`, `main.py`) всегда используют только
+ПЕРВЫЙ найденный шлюз (`gateways[0]`). Мульти-шлюзовая маршрутизация не
+реализована — не закладывать это в UI.
+
+Swagger UI: `http://localhost:8000/docs` — сверять точные схемы там, когда
+бэкенд поднят локально.
+
+### Схема сценария (schema_version "cosmo-A-1.0")
+Проверено на реальных файлах `data/01_full_constellation.json` и
+`data/03_satellite_outages.json` из репозитория:
+
+```json
+{
+  "schema_version": "cosmo-A-1.0",
+  "meta": { "id": "...", "title": "..." },
+  "environment": {
+    "altitude_km": 550.0, "inclination_deg": 87.0, "earth_angle0_deg": 12.0,
+    "horizon_s": 86400, "step_s": 120, "min_elevation_deg": 10.0,
+    "isl_range_km": 3000.0, "target_availability": 0.9
+  },
+  "design": {
+    "launch_stage": 3,
+    "planes": [{ "id": "P1", "raan_deg": 0.0, "phase_deg": 0.0 }],
+    "satellites": [{ "id": "S01", "plane_id": "P1", "slot_deg": 0.0, "launch_batch": 1 }]
+  },
+  "ground_sites": [
+    { "id": "G_MUR", "name": "Murmansk gateway", "role": "gateway", "lat_deg": 68.97, "lon_deg": 33.07 }
+  ],
+  "failures": [{ "satellite_id": "S31", "start_s": 21600, "end_s": 86400 }],
+  "gateway_outages": []
+}
+```
+
+### Snapshot (`GET /api/snapshot/{t_s}`, backend/geometry.py) — проверено построчно
+
+Позиции спутников — ДЕКАРТОВЫ координаты (`x_km, y_km, z_km`), НЕ lat/lon!
+**Система координат — Earth-fixed (вращается вместе с Землёй), НЕ инерциальная
+ECI.** Подтверждено: `ground_position()` в geometry.py возвращает позицию
+наземной точки как константу (без зависимости от t_s), а спутниковые
+координаты, отдаваемые наружу, уже повёрнуты на `earth_angle0_deg + OMEGA*t_s`
+— т.е. обе стороны в одной вращающейся системе отсчёта. Значит для 2D-карты
+конвертация в `src/utils/geo.ts` — простая сферическая, БЕЗ поправки на
+звёздное время:
+
+```
+r = sqrt(x_km² + y_km² + z_km²)
+lat_deg = degrees(asin(z_km / r))
+lon_deg = degrees(atan2(y_km, x_km))
+```
+
+```json
+{
+  "snapshot": {
+    "t_s": 0,
+    "satellites": [{ "id": "S01", "x_km": 0, "y_km": 0, "z_km": 0, "active": true }],
+    "edges": [["S01", "S02", 1234.5], ["G_MUR", "S03", 987.6]],
+    "elevation_deg": { "<ground_site_id>": { "<sat_id>": 12.3 } },
+    "visible_sats": { "<client_id>": ["S01", "S02"] },
+    "gateway_status": { "<gateway_id>": { "outage": false, "geometrically_reachable": true } }
+  },
+  "routes": { "<client_id>": ["<client_id>", "S01", "S02", "<gateway_id>"] },
+  "visible_satellites_per_client": { "<client_id>": [] }
+}
+```
+
+Важные нюансы, где реальный контракт РАСХОДИТСЯ с тем, что можно было бы
+предположить по названиям:
+
+- Ключ **`edges`**, не `isl_links` — в одном массиве смешаны и ISL-линии
+  (спутник-спутник), и линии видимости земля-спутник (client/gateway-спутник).
+  Различать по тому, какой из двух ID встречается в `design.satellites`/
+  `ground_sites`.
+- **`routes` — это словарь** `{client_id: path[]}`, а не массив объектов с
+  `exists`. Пустой маршрут — `[]` (path.length === 0), отдельного флага
+  `exists` в этом эндпоинте нет.
+- `gateway_status` — новое поле, не описанное раньше: на нём построена логика
+  причин обрыва связи в router.py (см. ниже). В `/api/snapshot/{t_s}` сам
+  `reason`/`status` при этом НЕ отдаётся — только сырые `gateway_status` +
+  `visible_sats`, из которых при желании можно вывести причину на фронте так
+  же, как это делает `router.evaluate_and_repair_route`. Готовый `reason` по
+  каждому шагу времени есть только в `/api/analysis` (`global_states[].status`,
+  `breaks[].reason`).
+
+### Analysis (`GET /api/analysis`, backend/analyzer.py) — проверено построчно
+
+```json
+{
+  "schema_version": "cosmo-A-result-1.0",
+  "effective_scenario": {},
+  "analysis": {
+    "<client_id>": {
+      "availability_pct": 97.3,
+      "max_break_s": 720,
+      "target_met": true,
+      "breaks": [{ "start_s": 3600, "end_s": 4320, "duration_s": 720, "reason": "NO_VISIBLE_SATELLITE" }],
+      "global_states": [
+        {
+          "t_s": 0,
+          "connected": true,
+          "path": ["<client_id>", "S01", "S02", "<gateway_id>"],
+          "active_satellites_count": 32,
+          "status": "OK",
+          "snapshot_summary": { "edges_count": 210, "visible_satellites": ["S01", "S02"] }
+        }
+      ]
+    }
+  },
+  "routes": [{ "t_s": 0, "client_id": "<client_id>", "path": [] }]
+}
+```
+
+Важно: `routes` здесь — ПЛОСКИЙ лог по каждому шагу времени × каждому
+клиенту (`{t_s, client_id, path}[]`), а не словарь как в `/api/snapshot/{t_s}`.
+При 48 спутниках/горизонте 86400с/шаге 120с и нескольких клиентах это может
+быть заметный объём — для UI обычно достаточно `analysis[client_id].breaks`
+и `global_states`, весь `routes` целиком вряд ли нужен рендерить построчно.
+
+`status` внутри `global_states[]` принимает те же значения, что и `reason`
+в `breaks[]`, плюс `"OK"`/`"REBUILT"` для рабочего маршрута (см. ниже).
+
+### Причины обрыва связи (`reason`/`status`, backend/router.py) — точный контракт
+
+Строго в этом порядке проверки (см. `evaluate_and_repair_route`):
+
+1. `"OK"` — существующий маршрут всё ещё валиден, не перестраивался.
+2. `"REBUILT"` — маршрут не подошёл (устарел/разорван), но BFS нашёл новый.
+3. `"NO_VISIBLE_SATELLITE"` — у клиента нет видимых спутников (`visible_sats[client]` пуст).
+4. `"GATEWAY_UNAVAILABLE"` — шлюз в `gateway_outages` на этот момент времени.
+5. `"NO_GATEWAY_CONNECTION"` — шлюз геометрически не виден ни одному спутнику
+   (`gateway_status[gw].geometrically_reachable === false`).
+6. `"BROKEN_ISL_NETWORK"` — и клиент, и шлюз видят спутники, но между ними
+   нет непрерывной цепочки ISL-линий (спутниковая сеть разорвана).
+
+### `global_states[]` — точная структура (analyzer.py)
+
+`{ t_s, connected, path, active_satellites_count, status, snapshot_summary: { edges_count, visible_satellites } }`.
+
+### `gateway_outages` — точная структура (validate() в geometry.py)
+
+Как и `failures`, но с ключом шлюза: `{ gateway_id, start_s, end_s }`. Во всех
+4 примерах сценариев массив пуст, но `validate()` ожидает `gateway_id` из
+множества ID шлюзов (`role === "gateway"`).
+
+### `/api/auto-tune` — точная структура ответа (analyzer.auto_tune_configuration)
+
+```json
+{
+  "best_configuration": {
+    "planes": { "<plane_id>": { "raan_deg": 0.0, "phase_deg": 0.0 } },
+    "min_availability_pct": 92.1,
+    "mean_availability_pct": 95.4,
+    "per_client_availability_pct": { "<client_id>": 92.1 },
+    "baseline_min_availability_pct": 88.0,
+    "improvement_over_baseline_pct": 4.1,
+    "evaluations_count": 47
+  }
+}
+```
+
+⚠️ `planes` — СЛОВАРЬ `{plane_id: {raan_deg, phase_deg}}`, а не массив как в
+`design.planes`. Чтобы применить результат через `POST /api/update-config`
+(`planes_update`), фронту нужно самому превратить его в
+`[{ id, raan_deg, phase_deg }, ...]`.
+
+### `/api/robustness` — точная структура ответа (analyzer.analyze_robustness)
+
+```json
+{
+  "robustness_rating": [
+    {
+      "satellite_ids": ["S07"],
+      "worst_case_availability_drop_pct": 12.3,
+      "baseline_min_availability_pct": 90.0,
+      "degraded_min_availability_pct": 77.7,
+      "per_client_drop_pct": { "<client_id>": 12.3 },
+      "causes_full_outage": false
+    }
+  ]
+}
+```
+
+`satellite_ids` — МАССИВ (обычно из одного элемента при branch=1 по умолчанию,
+но при `?branch=2` и выше это будет пара/тройка отказавших одновременно
+спутников) — не единичный `satellite_id`. Отсортировано от самого критичного
+к наименее критичному (`worst_case_availability_drop_pct` по убыванию).
+
+## Состояние фронтенда — MVP реализован и проверен (п.7 ТЗ)
+
+Ранний черновик типов/клиента (camelCase, эндпоинты вида `/scenarios/{id}/state`)
+полностью переписан под реальный контракт выше. Проверено вручную: поднят
+реальный бэкенд локально (venv в `backend/venv`, гитигнорится) и прогнан через
+Playwright весь путь — загрузка сценария → редактирование конфигурации →
+2D-карта с реальным снапшотом → подсветка маршрута → графики доступности →
+устойчивость → автоподбор. Ошибок в консоли/сети не было ни в реальном
+режиме (`VITE_USE_MOCK=false`), ни в мок-режиме (`VITE_USE_MOCK=true`).
+
+Архитектура:
+
+- `src/types/{scenario,network-state,analysis}.ts` — 1-в-1 с контрактом выше.
+- `src/utils/geo.ts` — `cartesianToLatLon()` (формула из раздела Snapshot) +
+  проекция на canvas.
+- `src/api/client.ts` — реальные эндпоинты + переключение на мок через
+  `VITE_USE_MOCK`.
+- `src/api/mock/engine.ts` — TS-порт физики/роутинга бэкенда (geometry.py/
+  router.py/analyzer.py) для мок-режима; **численно сверен** с реальным
+  бэкендом (совпадают координаты спутников и рейтинг устойчивости).
+  robustness/auto-tune в моке работают на том же `runFullSimulation`, но
+  auto-tune — с урезанным бюджетом поиска (другие числа на выходе, чем у
+  реального `optimization.py`, — это ожидаемо, не баг).
+- `src/api/hooks.ts` — TanStack Query (кэш + инвалидация snapshot/analysis/
+  robustness при load/update-config).
+- `src/stores/{scenarioStore,timelineStore,uiStore}.ts` — Zustand.
+- `src/App.tsx` — табы "Сценарный редактор" / "Симуляция" (без роутера).
+- `src/pages/EditorPage.tsx` — загрузка демо-сценария или своего JSON,
+  редактирование launch_stage/isl_range_km/planes/failures через
+  react-hook-form + ручную валидацию zod (без `@hookform/resolvers` — пакет
+  не установлен), сохранение вариантов.
+- `src/pages/SimulationPage.tsx` — таймлайн + 3D-глобус + графики + доп. п.5/6 +
+  экспорт.
+- `src/components/{Globe3D,Timeline,AvailabilityChart}.tsx`.
+- `frontend/public/sample-scenarios/*.json` — те же 4 примера, что и в
+  `data/` в корне репозитория, для кнопки "Загрузить пример" в редакторе.
+
+`eslint.config.js` был точечно исправлен: `no-undef`/`no-unused-vars`
+(базовые правила) отключены для `.ts/.tsx` — они не понимают TS-синтаксис
+(ambient DOM-типы вроде `RequestInit`, именованные параметры в сигнатурах
+интерфейсов) и ложно ругались на валидный код. Это стандартная рекомендация
+typescript-eslint, не отключение реальных проверок — `@typescript-eslint/
+no-unused-vars` как ловил неиспользуемые переменные, так и ловит.
+
+### Что не сделано / сознательно упрощено
+
+- Полноценного роутера нет (табы через Zustand) — соответствует заметке в
+  плане ("можно табами вместо полноценного роутера").
+- Сравнение сохранённых вариантов (`/api/compare`) реализовано в
+  `api/client.ts` и `api/hooks.ts` (`useCompareVariants`), но БЕЗ отдельного
+  UI-экрана — не было явного пункта в плане, добавить по запросу.
+- В `Globe3D` ISL/видимость рисуются как дуги (react-globe.gl `arcsData`) с
+  автомасштабируемой высотой — упрощение для наглядности, не точная 3D-прямая
+  между двумя точками в пространстве (для визуализации не критично).
 # КосмоХакатон 2026 — «Проектирование устойчивой спутниковой группировки»
 
 Репозиторий: github.com/RAR939/Sat_control

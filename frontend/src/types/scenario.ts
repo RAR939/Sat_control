@@ -1,62 +1,82 @@
 // src/types/scenario.ts
 //
-// Типы, описывающие СЦЕНАРИЙ — исходные данные для симуляции, которые
-// пользователь загружает/редактирует в Сценарном редакторе (п.7 ТЗ).
-// ВАЖНО: эта структура — предположение по описанию задачи. Как только
-// бэкенд пришлёт реальную Pydantic-схему (или OpenAPI), эти типы нужно
-// свести к ней 1-в-1, иначе будут расхождения между фронтом и бэком.
+// Типы сценария — 1-в-1 со схемой "cosmo-A-1.0", подтверждённой построчным
+// чтением backend/geometry.py (validate()) и реальными файлами data/*.json.
+// Ключи снизу — snake_case, СОВПАДАЮЩИЕ с бэкендом: Pydantic отклонит запрос
+// при малейшем расхождении (camelCase, лишние/недостающие поля).
 
-/** Один этап развёртывания группировки (спутники выводятся не все сразу) */
-export interface DeploymentStage {
-  /** Порядковый номер этапа */
-  stageNumber: number;
-  /** Время начала этапа (секунды от начала сценария) */
-  startTime: number;
-  /** ID спутников, которые становятся активны на этом этапе */
-  satelliteIds: string[];
+export type LaunchStage = 1 | 2 | 3;
+export type GroundRole = 'client' | 'gateway';
+
+export interface Environment {
+  altitude_km: number;
+  inclination_deg: number;
+  earth_angle0_deg: number;
+  horizon_s: number;
+  step_s: number;
+  min_elevation_deg: number;
+  isl_range_km: number;
+  target_availability: number;
 }
 
-/** Параметры одной орбитальной плоскости группировки */
-export interface OrbitalPlane {
-  planeId: string;
-  /** Долгота восходящего узла, градусы */
-  raan: number;
-  /** Фазовый сдвиг внутри плоскости, градусы */
-  phase: number;
-  /** Количество спутников в этой плоскости */
-  satelliteCount: number;
-}
-
-/** Смоделированный отказ спутника на заданном интервале времени */
-export interface SatelliteFailure {
-  satelliteId: string;
-  /** Время начала отказа, секунды от начала сценария */
-  startTime: number;
-  /** Время окончания отказа; null = отказ до конца сценария */
-  endTime: number | null;
-}
-
-/** Наземная точка — клиент или шлюз */
-export interface GroundPoint {
+export interface DesignPlane {
   id: string;
-  type: 'client' | 'gateway';
-  name: string;
-  latitude: number;
-  longitude: number;
+  raan_deg: number;
+  phase_deg: number;
 }
 
-/** Полный сценарий — то, что хранится/загружается/сохраняется целиком */
+export interface DesignSatellite {
+  id: string;
+  plane_id: string;
+  slot_deg: number;
+  launch_batch: LaunchStage;
+}
+
+export interface Design {
+  launch_stage: LaunchStage;
+  planes: DesignPlane[];
+  satellites: DesignSatellite[];
+}
+
+export interface GroundSite {
+  id: string;
+  name: string;
+  role: GroundRole;
+  lat_deg: number;
+  lon_deg: number;
+}
+
+export interface Failure {
+  satellite_id: string;
+  start_s: number;
+  end_s: number;
+}
+
+export interface GatewayOutage {
+  gateway_id: string;
+  start_s: number;
+  end_s: number;
+}
+
+export interface ScenarioMeta {
+  id: string;
+  title: string;
+}
+
 export interface Scenario {
-  id: string;
-  name: string;
-  /** Длительность моделируемого отрезка времени, секунды */
-  durationSeconds: number;
-  /** Частота сохранения состояний системы (п.3.1 ТЗ), секунды между снимками */
-  stateStepSeconds: number;
-  /** Максимальная дальность связи между спутниками (ISL), км */
-  islRangeKm: number;
-  orbitalPlanes: OrbitalPlane[];
-  deploymentStages: DeploymentStage[];
-  failures: SatelliteFailure[];
-  groundPoints: GroundPoint[];
+  schema_version: 'cosmo-A-1.0';
+  meta: ScenarioMeta;
+  environment: Environment;
+  design: Design;
+  ground_sites: GroundSite[];
+  failures: Failure[];
+  gateway_outages: GatewayOutage[];
+}
+
+/** Тело POST /api/update-config — частичное обновление активного сценария. */
+export interface ConfigUpdate {
+  launch_stage?: LaunchStage;
+  isl_range_km?: number;
+  planes_update?: Array<{ id: string; raan_deg?: number; phase_deg?: number }>;
+  failures_update?: Failure[];
 }

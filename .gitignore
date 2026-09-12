@@ -3,3 +3,24 @@ dist/
 build/
 
 .DS_Store
+Thumbs.db
+Desktop.ini
+
+# --- TypeScript ---
+*.tsbuildinfo
+
+# --- Python (backend, только для локального запуска/справки) ---
+backend/venv/
+backend/__pycache__/
+*.pyc
+
+# --- Разное ---
+*.local
+.temp/
+.tmp/
+
+node_modules/
+dist/
+build/
+
+.DS_Store
