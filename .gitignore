@@ -1,16 +1,3 @@
-__pycache__/
-*.pyc
-*.pyo
-
-venv/
-.venv/
-*/venv/
-env/
-ENV/
-
-.idea/
-.vscode/
-
 node_modules/
 dist/
 build/
