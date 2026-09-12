@@ -18,6 +18,7 @@ import { exportAnalysisUrl } from '../api/client';
 import { Timeline } from '../components/Timeline';
 import { Globe3D } from '../components/Globe3D';
 import { AvailabilityChart } from '../components/AvailabilityChart';
+import { HudButton } from '../components/HudButton';
 
 export function SimulationPage() {
   const scenario = useScenarioStore((s) => s.scenario);
@@ -36,17 +37,11 @@ export function SimulationPage() {
 
   if (!scenario) {
     return (
-      <div className="mx-auto flex max-w-md flex-col items-center gap-3 rounded-lg border border-slate-800/70 bg-slate-900/40 backdrop-blur-sm p-8 text-center">
+      <div className="mx-auto flex max-w-md flex-col items-center gap-3 border-l-2 border-slate-700 bg-slate-900/40 p-8 text-center backdrop-blur-sm">
         <p className="text-slate-300">
           Сначала нужно загрузить сценарий — без него не с чем считать сеть.
         </p>
-        <button
-          type="button"
-          onClick={() => setActiveTab('editor')}
-          className="rounded-md bg-gradient-to-r from-sky-500 to-indigo-500 px-4 py-1.5 text-sm font-medium text-white shadow shadow-sky-500/20 transition hover:from-sky-400 hover:to-indigo-400"
-        >
-          ← Перейти в редактор
-        </button>
+        <HudButton onClick={() => setActiveTab('editor')}>← Перейти в редактор</HudButton>
       </div>
     );
   }
@@ -66,14 +61,14 @@ export function SimulationPage() {
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <label className="text-sm text-slate-400">Клиентский терминал:</label>
+      <div className="flex flex-wrap items-center gap-2 font-mono text-xs">
+        <label className="tracking-[0.1em] text-slate-500 uppercase">Клиентский терминал:</label>
         <select
           value={selectedClientId ?? ''}
           onChange={(e) => setSelectedClientId(e.target.value || null)}
-          className="rounded border border-slate-700 bg-slate-800 px-2 py-1 text-sm"
+          className="border border-slate-700 bg-slate-800 px-2 py-1.5 text-slate-200"
         >
-          <option value="">— выбрать для подсветки маршрута —</option>
+          <option value="">— выбрать —</option>
           {clients.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name} ({c.id})
@@ -82,21 +77,21 @@ export function SimulationPage() {
         </select>
         {selectedClientId && (
           <span
-            className={`rounded px-2 py-0.5 text-xs font-medium ${
-              isConnected ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'
+            className={`border px-2 py-1 tracking-[0.05em] uppercase ${
+              isConnected
+                ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                : 'border-rose-500/40 bg-rose-500/10 text-rose-300'
             }`}
           >
-            {isConnected
-              ? `на связи · ${selectedRoute!.length - 1} хоп(ов) до шлюза`
-              : 'нет связи в этот момент'}
+            {isConnected ? `на связи · ${selectedRoute!.length - 1} хоп(ов)` : 'нет связи'}
           </span>
         )}
         {exportUrl && (
           <a
             href={exportUrl}
-            className="ml-auto rounded border border-slate-700 px-3 py-1 text-sm text-slate-300 hover:border-slate-500"
+            className="ml-auto border border-slate-700 px-3 py-1.5 tracking-[0.1em] text-slate-400 uppercase transition hover:border-slate-500 hover:text-slate-200"
           >
-            Экспорт анализа (JSON)
+            Экспорт JSON
           </a>
         )}
       </div>
@@ -112,7 +107,9 @@ export function SimulationPage() {
       )}
 
       <section>
-        <h2 className="mb-1 text-sm font-semibold text-slate-300">Доступность связи</h2>
+        <h2 className="mb-1 flex items-baseline gap-2 font-mono text-sm font-semibold text-slate-300">
+          <span className="text-sky-500">03</span> Доступность связи
+        </h2>
         <p className="mb-2 text-xs text-slate-500">
           Столбцы — доля времени за весь горизонт расчёта, когда у клиента был рабочий маршрут до
           шлюза; жёлтая линия — целевой порог (target_availability). Нижний график — связность
@@ -133,29 +130,30 @@ export function SimulationPage() {
         )}
       </section>
 
-      <section className="rounded-lg border border-slate-800/70 bg-slate-900/40 backdrop-blur-sm p-4">
+      <section className="border-l-2 border-slate-700 bg-slate-900/40 p-4 backdrop-blur-sm">
         <div className="mb-1 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-slate-300">Доп. п.5 — Анализ устойчивости</h2>
-          <button
-            type="button"
+          <h2 className="flex items-baseline gap-2 font-mono text-sm font-semibold text-slate-300">
+            <span className="text-sky-500">04</span> Доп. п.5 — Анализ устойчивости
+          </h2>
+          <HudButton
+            variant="ghost"
             onClick={() => setRobustnessEnabled(true)}
             disabled={robustnessQuery.isFetching}
-            className="rounded border border-slate-700 px-3 py-1 text-sm text-slate-300 hover:border-slate-500 disabled:opacity-50"
           >
-            {robustnessQuery.isFetching ? 'Считаем...' : 'Запустить'}
-          </button>
+            {robustnessQuery.isFetching ? 'Считаем…' : 'Запустить'}
+          </HudButton>
         </div>
         <p className="mb-2 text-xs text-slate-500">
           По очереди «отключаем» каждый спутник на весь горизонт и смотрим, насколько падает худшая
           (по клиентам) доступность — так находим самые критичные аппараты в группировке.
         </p>
         {robustnessQuery.data && (
-          <table className="w-full text-left text-sm">
+          <table className="w-full text-left font-mono text-sm">
             <thead className="text-slate-500">
               <tr>
-                <th className="pb-1">Спутник</th>
-                <th className="pb-1">Падение мин. доступности</th>
-                <th className="pb-1">Полный обрыв?</th>
+                <th className="pb-1 font-normal">Спутник</th>
+                <th className="pb-1 font-normal">Падение мин. доступности</th>
+                <th className="pb-1 font-normal">Полный обрыв?</th>
               </tr>
             </thead>
             <tbody>
@@ -171,26 +169,25 @@ export function SimulationPage() {
         )}
       </section>
 
-      <section className="rounded-lg border border-slate-800/70 bg-slate-900/40 backdrop-blur-sm p-4">
+      <section className="border-l-2 border-slate-700 bg-slate-900/40 p-4 backdrop-blur-sm">
         <div className="mb-1 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-slate-300">
-            Доп. п.6 — Автоподбор конфигурации
+          <h2 className="flex items-baseline gap-2 font-mono text-sm font-semibold text-slate-300">
+            <span className="text-sky-500">05</span> Доп. п.6 — Автоподбор конфигурации
           </h2>
-          <button
-            type="button"
+          <HudButton
+            variant="ghost"
             onClick={() => autoTuneMutation.mutate({ randomSamples: 8, seed: 42 })}
             disabled={autoTuneMutation.isPending}
-            className="rounded border border-slate-700 px-3 py-1 text-sm text-slate-300 hover:border-slate-500 disabled:opacity-50"
           >
-            {autoTuneMutation.isPending ? 'Считаем...' : 'Запустить'}
-          </button>
+            {autoTuneMutation.isPending ? 'Считаем…' : 'Запустить'}
+          </HudButton>
         </div>
         <p className="mb-2 text-xs text-slate-500">
           Подбирает RAAN/фазу орбитальных плоскостей так, чтобы максимизировать доступность худшего
           клиента.
         </p>
         {autoTuneMutation.data && (
-          <div className="text-sm text-slate-300">
+          <div className="font-mono text-sm text-slate-300">
             <p>
               Мин. доступность:{' '}
               {autoTuneMutation.data.best_configuration.min_availability_pct.toFixed(1)}% (было{' '}
@@ -199,8 +196,8 @@ export function SimulationPage() {
               {autoTuneMutation.data.best_configuration.improvement_over_baseline_pct.toFixed(1)}{' '}
               п.п.)
             </p>
-            <button
-              type="button"
+            <HudButton
+              className="mt-2"
               onClick={() =>
                 updateConfigMutation.mutate({
                   planes_update: Object.entries(
@@ -212,10 +209,9 @@ export function SimulationPage() {
                   })),
                 })
               }
-              className="mt-2 rounded-md bg-gradient-to-r from-sky-500 to-indigo-500 px-3 py-1 text-sm text-white shadow shadow-sky-500/20 transition hover:from-sky-400 hover:to-indigo-400"
             >
               Применить найденную конфигурацию
-            </button>
+            </HudButton>
           </div>
         )}
       </section>

@@ -18,6 +18,7 @@ import { useLoadScenario, useSaveVariant, useUpdateConfig } from '../api/hooks';
 import { fetchSampleScenario } from '../api/client';
 import { SAMPLE_SCENARIOS } from '../api/mock/fixtures';
 import type { Scenario } from '../types/scenario';
+import { HudButton } from '../components/HudButton';
 
 const configFormSchema = z.object({
   launch_stage: z.union([z.literal(1), z.literal(2), z.literal(3)]),
@@ -64,6 +65,7 @@ export function EditorPage() {
 
   const [sampleFile, setSampleFile] = useState(SAMPLE_SCENARIOS[0].file);
   const [variantName, setVariantName] = useState('');
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
   const {
@@ -89,12 +91,19 @@ export function EditorPage() {
   const onUploadFile = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const text = await file.text();
+    const rawText = await file.text();
+    // Файлы, сохранённые из редакторов на Windows, часто начинаются с
+    // UTF-8 BOM (U+FEFF) — JSON.parse падает на нём с "Unexpected token",
+    // хотя сам JSON внутри валиден. Срезаем BOM перед парсингом.
+    const text = rawText.replace(/^\uFEFF/, '').trim();
     try {
       const data = JSON.parse(text) as Scenario;
+      setUploadError(null);
       loadScenarioMutation.mutate(data);
-    } catch {
-      setFormError('Не удалось прочитать JSON сценария');
+    } catch (err) {
+      setUploadError(
+        `Не удалось прочитать JSON сценария: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
     e.target.value = '';
   };
@@ -121,13 +130,15 @@ export function EditorPage() {
         конфигурацией на бэкенде. Дальше можно поменять очередь запуска, дальность связи между
         спутниками и добавить отказы, применить изменения и перейти к 3D-визуализации.
       </p>
-      <section className="rounded-lg border border-slate-800/70 bg-slate-900/40 backdrop-blur-sm p-4">
-        <h2 className="mb-3 text-sm font-semibold text-slate-300">1. Загрузить сценарий</h2>
+      <section className="border-l-2 border-sky-500/50 bg-slate-900/40 p-4 backdrop-blur-sm">
+        <h2 className="mb-3 flex items-baseline gap-2 font-mono text-sm font-semibold text-slate-300">
+          <span className="text-sky-500">01</span> Загрузить сценарий
+        </h2>
         <div className="flex flex-wrap items-center gap-2">
           <select
             value={sampleFile}
             onChange={(e) => setSampleFile(e.target.value)}
-            className="rounded border border-slate-700 bg-slate-800 px-2 py-1.5 text-sm"
+            className="border border-slate-700 bg-slate-800 px-2 py-1.5 font-mono text-sm text-slate-200"
           >
             {SAMPLE_SCENARIOS.map((s) => (
               <option key={s.id} value={s.file}>
@@ -135,16 +146,11 @@ export function EditorPage() {
               </option>
             ))}
           </select>
-          <button
-            type="button"
-            onClick={onLoadSample}
-            disabled={loadScenarioMutation.isPending}
-            className="rounded-md bg-gradient-to-r from-sky-500 to-indigo-500 px-3 py-1.5 text-sm font-medium text-white shadow shadow-sky-500/20 transition hover:from-sky-400 hover:to-indigo-400 disabled:opacity-50"
-          >
+          <HudButton onClick={onLoadSample} disabled={loadScenarioMutation.isPending}>
             Загрузить пример
-          </button>
-          <label className="cursor-pointer rounded border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:border-slate-500">
-            Загрузить свой JSON
+          </HudButton>
+          <label className="cursor-pointer border border-slate-700 px-3 py-2 font-mono text-xs tracking-[0.1em] text-slate-400 uppercase transition hover:border-slate-500 hover:text-slate-200">
+            Свой JSON
             <input
               type="file"
               accept="application/json"
@@ -158,29 +164,35 @@ export function EditorPage() {
             {(loadScenarioMutation.error as Error).message}
           </p>
         )}
+        {uploadError && <p className="mt-2 text-sm text-rose-400">{uploadError}</p>}
       </section>
 
       {scenario && (
         <>
-          <section className="rounded-lg border border-slate-800/70 bg-slate-900/40 backdrop-blur-sm p-4 text-sm text-slate-300">
-            <p>
-              <span className="text-slate-500">Сценарий:</span> {scenario.meta.title} (
-              {scenario.meta.id})
-            </p>
-            <p>
-              <span className="text-slate-500">Спутников:</span> {scenario.design.satellites.length}{' '}
-              · <span className="text-slate-500">Плоскостей:</span> {scenario.design.planes.length}{' '}
-              · <span className="text-slate-500">Наземных пунктов:</span>{' '}
-              {scenario.ground_sites.length}
-            </p>
+          <section className="flex flex-wrap gap-x-6 gap-y-1 border-l-2 border-slate-700 bg-slate-900/40 p-4 font-mono text-xs text-slate-400 backdrop-blur-sm">
+            <span>
+              СЦЕНАРИЙ <span className="text-slate-200">{scenario.meta.title}</span>
+            </span>
+            <span>
+              СПУТНИКОВ <span className="text-slate-200">{scenario.design.satellites.length}</span>
+            </span>
+            <span>
+              ПЛОСКОСТЕЙ <span className="text-slate-200">{scenario.design.planes.length}</span>
+            </span>
+            <span>
+              НАЗЕМНЫХ ПУНКТОВ{' '}
+              <span className="text-slate-200">{scenario.ground_sites.length}</span>
+            </span>
           </section>
 
           <form
             onSubmit={onSubmit}
-            className="flex flex-col gap-4 rounded-lg border border-slate-800/70 bg-slate-900/40 backdrop-blur-sm p-4"
+            className="flex flex-col gap-4 border-l-2 border-sky-500/50 bg-slate-900/40 p-4 backdrop-blur-sm"
           >
             <div>
-              <h2 className="text-sm font-semibold text-slate-300">2. Параметры конфигурации</h2>
+              <h2 className="flex items-baseline gap-2 font-mono text-sm font-semibold text-slate-300">
+                <span className="text-sky-500">02</span> Параметры конфигурации
+              </h2>
               <p className="mt-1 text-xs text-slate-500">
                 Меняешь тут — на бэкенде обновляется активный сценарий, и все расчёты (глобус,
                 графики, устойчивость) на вкладке «Симуляция» начинают использовать новые значения.
@@ -305,49 +317,44 @@ export function EditorPage() {
               </p>
             )}
 
-            <div className="flex items-center gap-2">
-              <button
-                type="submit"
-                disabled={updateConfigMutation.isPending}
-                className="rounded-md bg-gradient-to-r from-sky-500 to-indigo-500 px-4 py-1.5 text-sm font-medium text-white shadow shadow-sky-500/20 transition hover:from-sky-400 hover:to-indigo-400 disabled:opacity-50"
-              >
+            <div className="flex items-center gap-3">
+              <HudButton type="submit" disabled={updateConfigMutation.isPending}>
                 Применить конфигурацию
-              </button>
+              </HudButton>
               {updateConfigMutation.isSuccess && (
-                <span className="text-sm text-emerald-400">Обновлено ✓</span>
+                <span className="font-mono text-xs text-emerald-400">Обновлено ✓</span>
               )}
               <button
                 type="button"
                 onClick={() => setActiveTab('simulation')}
-                className="ml-auto rounded border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:border-slate-500"
+                className="ml-auto font-mono text-xs tracking-[0.1em] text-slate-400 uppercase underline decoration-slate-600 underline-offset-4 transition hover:text-sky-300 hover:decoration-sky-400"
               >
                 Перейти к симуляции →
               </button>
             </div>
           </form>
 
-          <section className="rounded-lg border border-slate-800/70 bg-slate-900/40 backdrop-blur-sm p-4">
-            <h2 className="mb-2 text-sm font-semibold text-slate-300">
-              Сохранённые варианты (для сравнения)
+          <section className="border-l-2 border-slate-700 bg-slate-900/40 p-4 backdrop-blur-sm">
+            <h2 className="mb-2 font-mono text-sm font-semibold text-slate-300">
+              <span className="text-slate-500">03</span> Сохранённые варианты (для сравнения)
             </h2>
             <div className="flex items-center gap-2">
               <input
                 value={variantName}
                 onChange={(e) => setVariantName(e.target.value)}
-                placeholder="Имя варианта"
-                className="rounded border border-slate-700 bg-slate-800 px-2 py-1.5 text-sm"
+                placeholder="имя варианта"
+                className="border border-slate-700 bg-slate-800 px-2 py-1.5 font-mono text-sm text-slate-200 placeholder:text-slate-600"
               />
-              <button
-                type="button"
+              <HudButton
+                variant="ghost"
                 disabled={!variantName || saveVariantMutation.isPending}
                 onClick={() => {
                   saveVariantMutation.mutate(variantName);
                   setVariantName('');
                 }}
-                className="rounded border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:border-slate-500 disabled:opacity-50"
               >
-                Сохранить текущий сценарий как вариант
-              </button>
+                Сохранить вариант
+              </HudButton>
             </div>
             {savedVariantNames.length > 0 && (
               <p className="mt-2 text-sm text-slate-400">

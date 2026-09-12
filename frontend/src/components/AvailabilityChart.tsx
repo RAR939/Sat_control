@@ -27,7 +27,7 @@ export function AvailabilityChart({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="rounded-lg border border-slate-800/70 bg-slate-900/40 backdrop-blur-sm p-2">
+      <div className="border-l-2 border-slate-700 bg-slate-900/40 backdrop-blur-sm p-2">
         <Plot
           data={[
             {
@@ -63,7 +63,7 @@ export function AvailabilityChart({
       </div>
 
       {selected && selectedClientId && (
-        <div className="rounded-lg border border-slate-800/70 bg-slate-900/40 backdrop-blur-sm p-2">
+        <div className="border-l-2 border-slate-700 bg-slate-900/40 backdrop-blur-sm p-2">
           <Plot
             data={[
               {

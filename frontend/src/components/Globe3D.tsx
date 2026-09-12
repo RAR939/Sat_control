@@ -33,10 +33,22 @@ interface SatellitePoint extends PositionedNode {
   active: boolean;
 }
 
-interface GroundLabel extends PositionedNode {
+interface GroundMarker extends PositionedNode {
+  kind: 'ground';
   name: string;
   role: GroundSite['role'];
 }
+
+/** Спутник-релей выбранного клиента — первый спутник на пути к шлюзу, если
+ *  связь есть, либо ближайший видимый спутник, если связи нет. Показывается
+ *  подписью, цвет которой меняется в зависимости от того, есть ли реально
+ *  доставленный маршрут через него. */
+interface RelaySatelliteMarker extends PositionedNode {
+  kind: 'relay-satellite';
+  connected: boolean;
+}
+
+type HtmlMarker = GroundMarker | RelaySatelliteMarker;
 
 interface EdgeArc {
   startLat: number;
@@ -87,9 +99,10 @@ export function Globe3D({ snapshot, groundSites, routes, selectedClientId }: Glo
     }
   }, []);
 
-  const groundLabels: GroundLabel[] = useMemo(
+  const groundLabels: GroundMarker[] = useMemo(
     () =>
       groundSites.map((g) => ({
+        kind: 'ground' as const,
         id: g.id,
         name: g.name,
         role: g.role,
@@ -167,6 +180,33 @@ export function Globe3D({ snapshot, groundSites, routes, selectedClientId }: Glo
 
   const allArcs = useMemo(() => [...edgeArcs, ...routeArcs], [edgeArcs, routeArcs]);
 
+  // "Главный" спутник выбранного клиента: если связь есть — первый спутник
+  // на маршруте до шлюза (path[0] — сам клиент, path[1] — уже спутник);
+  // если связи нет — ближайший геометрически видимый спутник (клиент его
+  // "видит", но маршрута до шлюза через него нет).
+  const relayMarker: RelaySatelliteMarker | null = useMemo(() => {
+    if (!selectedClientId || !snapshot) return null;
+    const path = routes?.[selectedClientId];
+    const connected = !!path && path.length > 1;
+    const relaySatId = connected ? path![1] : snapshot.visible_sats[selectedClientId]?.[0];
+    if (!relaySatId) return null;
+    const pos = positionById.get(relaySatId);
+    if (!pos) return null;
+    return {
+      kind: 'relay-satellite',
+      id: relaySatId,
+      lat: pos.lat,
+      lng: pos.lng,
+      alt: pos.alt,
+      connected,
+    };
+  }, [selectedClientId, snapshot, routes, positionById]);
+
+  const htmlMarkers: HtmlMarker[] = useMemo(
+    () => [...groundLabels, ...(relayMarker ? [relayMarker] : [])],
+    [groundLabels, relayMarker],
+  );
+
   return (
     <div
       ref={containerRef}
@@ -186,26 +226,46 @@ export function Globe3D({ snapshot, groundSites, routes, selectedClientId }: Glo
         pointLat="lat"
         pointLng="lng"
         pointAltitude="alt"
-        pointRadius={0.35}
-        pointColor={(d) => ((d as SatellitePoint).active ? '#38bdf8' : '#475569')}
+        pointRadius={(d: object) => ((d as SatellitePoint).id === relayMarker?.id ? 0.6 : 0.35)}
+        pointColor={(d: object) => {
+          const sat = d as SatellitePoint;
+          if (sat.id === relayMarker?.id) return relayMarker!.connected ? '#34d399' : '#f87171';
+          return sat.active ? '#38bdf8' : '#475569';
+        }}
         pointLabel={(d) =>
           `${(d as SatellitePoint).id}${(d as SatellitePoint).active ? '' : ' (не активен)'}`
         }
-        htmlElementsData={groundLabels}
+        htmlElementsData={htmlMarkers}
         htmlLat="lat"
         htmlLng="lng"
         htmlAltitude="alt"
         htmlElement={(d: object) => {
-          const g = d as GroundLabel;
-          const accent = g.role === 'gateway' ? '#f87171' : '#34d399';
+          const marker = d as HtmlMarker;
           const el = document.createElement('div');
+          if (marker.kind === 'relay-satellite') {
+            // Цвет и подпись меняются в зависимости от того, есть ли реально
+            // рабочая связь через этот спутник, а не просто его видимость.
+            const accent = marker.connected ? '#34d399' : '#f87171';
+            const statusText = marker.connected ? 'связь есть' : 'виден, связи нет';
+            el.style.cssText =
+              'display:flex;align-items:center;gap:6px;padding:3px 9px;border-radius:9999px;' +
+              'background:rgba(2,6,23,0.88);border:1.5px solid ' +
+              accent +
+              `;box-shadow:0 0 10px 0 ${accent}55, 0 1px 4px rgba(0,0,0,0.6);` +
+              'font:600 11px/1.4 system-ui,sans-serif;color:' +
+              accent +
+              ';white-space:nowrap;pointer-events:none;transform:translate(-10px,-28px);';
+            el.innerHTML = `<span style="width:7px;height:7px;border-radius:9999px;background:${accent};flex-shrink:0;box-shadow:0 0 6px 1px ${accent}"></span><span>${marker.id} · ${statusText}</span>`;
+            return el;
+          }
+          const accent = marker.role === 'gateway' ? '#f87171' : '#34d399';
           el.style.cssText =
             'display:flex;align-items:center;gap:5px;padding:2px 8px;border-radius:9999px;' +
             'background:rgba(2,6,23,0.82);border:1px solid ' +
             accent +
             '66;box-shadow:0 1px 4px rgba(0,0,0,0.5);font:500 11px/1.4 system-ui,sans-serif;' +
             'color:#e2e8f0;white-space:nowrap;pointer-events:none;transform:translate(-8px,-8px);';
-          el.innerHTML = `<span style="width:6px;height:6px;border-radius:9999px;background:${accent};flex-shrink:0"></span><span>${g.name}</span>`;
+          el.innerHTML = `<span style="width:6px;height:6px;border-radius:9999px;background:${accent};flex-shrink:0"></span><span>${marker.name}</span>`;
           return el;
         }}
         arcsData={allArcs}
@@ -248,6 +308,17 @@ export function Globe3D({ snapshot, groundSites, routes, selectedClientId }: Glo
         <p>
           <span className="inline-block h-0.5 w-4 bg-amber-400 align-middle" /> маршрут выбранного
           клиента
+        </p>
+        <p className="mt-1 border-t border-slate-700/60 pt-1 text-slate-400">
+          Подпись спутника у выбранного клиента:
+        </p>
+        <p>
+          <span className="inline-block h-2 w-2 rounded-full bg-emerald-400 align-middle" /> связь
+          есть
+        </p>
+        <p>
+          <span className="inline-block h-2 w-2 rounded-full bg-rose-400 align-middle" /> виден, но
+          связи нет
         </p>
       </div>
       <p className="pointer-events-none absolute right-3 top-3 rounded-md bg-slate-950/80 px-2 py-1 text-[11px] text-slate-400">

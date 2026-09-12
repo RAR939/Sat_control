@@ -6,6 +6,7 @@
 
 import { useEffect, useRef } from 'react';
 import { PLAYBACK_SPEEDS, useTimelineStore } from '../stores/timelineStore';
+import { HudButton } from './HudButton';
 
 interface TimelineProps {
   horizonS: number;
@@ -55,23 +56,19 @@ export function Timeline({ horizonS, stepS }: TimelineProps) {
   }, [t_s, horizonS, pause]);
 
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-800/70 bg-slate-900/40 backdrop-blur-sm p-3">
-      <button
-        type="button"
-        onClick={toggle}
-        className="rounded-md bg-gradient-to-r from-sky-500 to-indigo-500 px-3 py-1.5 text-sm font-medium text-white shadow-lg shadow-sky-500/20 transition hover:from-sky-400 hover:to-indigo-400"
-      >
+    <div className="flex flex-wrap items-center gap-3 border-t-2 border-sky-500/40 bg-slate-900/40 p-3 backdrop-blur-sm">
+      <HudButton onClick={toggle} className="w-20">
         {playing ? 'Пауза' : 'Play'}
-      </button>
+      </HudButton>
 
-      <div className="flex items-center gap-1 rounded-md bg-slate-800/70 p-0.5">
+      <div className="flex items-center gap-0.5 border border-slate-700/60 bg-slate-950/60 p-0.5 font-mono">
         {PLAYBACK_SPEEDS.map((s) => (
           <button
             key={s}
             type="button"
             onClick={() => setSpeed(s)}
-            className={`rounded px-2 py-1 text-xs font-medium transition ${
-              speed === s ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-slate-200'
+            className={`px-2 py-1 text-xs transition ${
+              speed === s ? 'bg-sky-500/20 text-sky-300' : 'text-slate-500 hover:text-slate-300'
             }`}
           >
             {s}×
@@ -86,9 +83,9 @@ export function Timeline({ horizonS, stepS }: TimelineProps) {
         step={stepS}
         value={t_s}
         onChange={(e) => setTs(Number(e.target.value))}
-        className="min-w-[120px] flex-1 accent-sky-500"
+        className="min-w-[120px] flex-1 accent-sky-400"
       />
-      <span className="w-32 shrink-0 text-right font-mono text-sm text-slate-300">
+      <span className="w-32 shrink-0 text-right font-mono text-sm text-sky-300">
         {formatTime(t_s)}
       </span>
     </div>
