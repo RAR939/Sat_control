@@ -131,9 +131,7 @@ export function EditorPage() {
         спутниками и добавить отказы, применить изменения и перейти к 3D-визуализации.
       </p>
       <section className="border-l-2 border-sky-500/50 bg-slate-900/40 p-4 backdrop-blur-sm">
-        <h2 className="mb-3 flex items-baseline gap-2 font-mono text-sm font-semibold text-slate-300">
-          <span className="text-sky-500">01</span> Загрузить сценарий
-        </h2>
+        <h2 className="mb-3 font-mono text-sm font-semibold text-slate-300">Загрузить сценарий</h2>
         <div className="flex flex-wrap items-center gap-2">
           <select
             value={sampleFile}
@@ -150,7 +148,7 @@ export function EditorPage() {
             Загрузить пример
           </HudButton>
           <label className="cursor-pointer border border-slate-700 px-3 py-2 font-mono text-xs tracking-[0.1em] text-slate-400 uppercase transition hover:border-slate-500 hover:text-slate-200">
-            Свой JSON
+            Загрузить свой JSON
             <input
               type="file"
               accept="application/json"
@@ -190,18 +188,18 @@ export function EditorPage() {
             className="flex flex-col gap-4 border-l-2 border-sky-500/50 bg-slate-900/40 p-4 backdrop-blur-sm"
           >
             <div>
-              <h2 className="flex items-baseline gap-2 font-mono text-sm font-semibold text-slate-300">
-                <span className="text-sky-500">02</span> Параметры конфигурации
+              <h2 className="font-mono text-sm font-semibold text-slate-300">
+                Параметры конфигурации
               </h2>
               <p className="mt-1 text-xs text-slate-500">
-                Меняешь тут — на бэкенде обновляется активный сценарий, и все расчёты (глобус,
-                графики, устойчивость) на вкладке «Симуляция» начинают использовать новые значения.
+                Изменения здесь сразу обновляют активный сценарий: расчёты на вкладке «Симуляция»
+                (глобус, графики, устойчивость) используют новые значения.
               </p>
             </div>
 
             <div className="flex flex-wrap gap-4">
               <label className="flex flex-col gap-1 text-sm">
-                Очередь запуска (launch_stage)
+                Очередь запуска
                 <select
                   {...register('launch_stage', { valueAsNumber: true })}
                   className="rounded border border-slate-700 bg-slate-800 px-2 py-1.5"
@@ -231,7 +229,7 @@ export function EditorPage() {
                   <div key={plane.id} className="flex items-center gap-3 text-sm">
                     <span className="w-10 text-slate-400">{plane.id}</span>
                     <label className="flex items-center gap-1">
-                      RAAN
+                      RAAN, °
                       <input
                         type="number"
                         step="any"
@@ -240,7 +238,7 @@ export function EditorPage() {
                       />
                     </label>
                     <label className="flex items-center gap-1">
-                      Phase
+                      Фаза, °
                       <input
                         type="number"
                         step="any"
@@ -269,7 +267,7 @@ export function EditorPage() {
                   }
                   className="text-xs text-sky-400 hover:text-sky-300"
                 >
-                  + добавить отказ
+                  + Добавить отказ
                 </button>
               </div>
               <div className="flex flex-col gap-2">
@@ -288,14 +286,14 @@ export function EditorPage() {
                     <input
                       type="number"
                       {...register(`failures.${index}.start_s`, { valueAsNumber: true })}
-                      className="w-24 rounded border border-slate-700 bg-slate-800 px-2 py-1"
-                      placeholder="start_s"
+                      className="w-28 rounded border border-slate-700 bg-slate-800 px-2 py-1"
+                      placeholder="начало, с"
                     />
                     <input
                       type="number"
                       {...register(`failures.${index}.end_s`, { valueAsNumber: true })}
-                      className="w-24 rounded border border-slate-700 bg-slate-800 px-2 py-1"
-                      placeholder="end_s"
+                      className="w-28 rounded border border-slate-700 bg-slate-800 px-2 py-1"
+                      placeholder="конец, с"
                     />
                     <button
                       type="button"
@@ -317,33 +315,21 @@ export function EditorPage() {
               </p>
             )}
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <HudButton type="submit" disabled={updateConfigMutation.isPending}>
                 Применить конфигурацию
               </HudButton>
               {updateConfigMutation.isSuccess && (
                 <span className="font-mono text-xs text-emerald-400">Обновлено ✓</span>
               )}
-              <button
-                type="button"
-                onClick={() => setActiveTab('simulation')}
-                className="ml-auto font-mono text-xs tracking-[0.1em] text-slate-400 uppercase underline decoration-slate-600 underline-offset-4 transition hover:text-sky-300 hover:decoration-sky-400"
-              >
-                Перейти к симуляции →
-              </button>
-            </div>
-          </form>
 
-          <section className="border-l-2 border-slate-700 bg-slate-900/40 p-4 backdrop-blur-sm">
-            <h2 className="mb-2 font-mono text-sm font-semibold text-slate-300">
-              <span className="text-slate-500">03</span> Сохранённые варианты (для сравнения)
-            </h2>
-            <div className="flex items-center gap-2">
+              <span className="mx-1 h-5 w-px bg-slate-700" aria-hidden="true" />
+
               <input
                 value={variantName}
                 onChange={(e) => setVariantName(e.target.value)}
                 placeholder="имя варианта"
-                className="border border-slate-700 bg-slate-800 px-2 py-1.5 font-mono text-sm text-slate-200 placeholder:text-slate-600"
+                className="w-36 border border-slate-700 bg-slate-800 px-2 py-1.5 font-mono text-sm text-slate-200 placeholder:text-slate-600"
               />
               <HudButton
                 variant="ghost"
@@ -353,15 +339,23 @@ export function EditorPage() {
                   setVariantName('');
                 }}
               >
-                Сохранить вариант
+                Сохранить конфигурацию
               </HudButton>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('simulation')}
+                className="ml-auto font-mono text-xs tracking-[0.1em] text-slate-400 uppercase underline decoration-slate-600 underline-offset-4 transition hover:text-sky-300 hover:decoration-sky-400"
+              >
+                Перейти к симуляции →
+              </button>
             </div>
             {savedVariantNames.length > 0 && (
-              <p className="mt-2 text-sm text-slate-400">
-                Сохранено: {savedVariantNames.join(', ')}
+              <p className="text-xs text-slate-500">
+                Сохранённые варианты: {savedVariantNames.join(', ')}
               </p>
             )}
-          </section>
+          </form>
         </>
       )}
     </div>

@@ -55,11 +55,40 @@ export function Timeline({ horizonS, stepS }: TimelineProps) {
     if (t_s >= horizonS) pause();
   }, [t_s, horizonS, pause]);
 
+  const stepBack = () => {
+    pause();
+    setTs(Math.max(0, t_s - stepS));
+  };
+  const stepForward = () => {
+    pause();
+    setTs(Math.min(Math.max(0, horizonS - stepS), t_s + stepS));
+  };
+
   return (
     <div className="flex flex-wrap items-center gap-3 border-t-2 border-sky-500/40 bg-slate-900/40 p-3 backdrop-blur-sm">
-      <HudButton onClick={toggle} className="w-20">
-        {playing ? 'Пауза' : 'Play'}
-      </HudButton>
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={stepBack}
+          disabled={t_s <= 0}
+          title="Шаг назад"
+          className="border border-slate-700/60 bg-slate-950/60 px-2 py-2 text-slate-400 transition hover:border-slate-500 hover:text-slate-200 disabled:cursor-not-allowed disabled:opacity-30"
+        >
+          ◀
+        </button>
+        <HudButton onClick={toggle} className="w-20">
+          {playing ? 'Пауза' : 'Play'}
+        </HudButton>
+        <button
+          type="button"
+          onClick={stepForward}
+          disabled={t_s >= horizonS - stepS}
+          title="Шаг вперёд"
+          className="border border-slate-700/60 bg-slate-950/60 px-2 py-2 text-slate-400 transition hover:border-slate-500 hover:text-slate-200 disabled:cursor-not-allowed disabled:opacity-30"
+        >
+          ▶
+        </button>
+      </div>
 
       <div className="flex items-center gap-0.5 border border-slate-700/60 bg-slate-950/60 p-0.5 font-mono">
         {PLAYBACK_SPEEDS.map((s) => (

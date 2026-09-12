@@ -8,6 +8,10 @@
 // через cartesianToGeo (Earth-fixed система — см. src/utils/geo.ts), высота
 // пересчитывается в доли радиуса Земли через kmToGlobeAltitude, как того
 // требует react-globe.gl.
+//
+// Наземные точки и спутники кликабельны (см. onSelectSatellite/
+// onSelectGroundSite) — родитель (SimulationPage) показывает по клику
+// подробную карточку с состоянием объекта.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Globe, { type GlobeMethods } from 'react-globe.gl';
@@ -20,6 +24,9 @@ interface Globe3DProps {
   groundSites: GroundSite[];
   routes: RoutesMap | undefined;
   selectedClientId: string | null;
+  onSelectSatellite: (id: string) => void;
+  onSelectGroundSite: (id: string) => void;
+  onClearSelection: () => void;
 }
 
 interface PositionedNode {
@@ -37,6 +44,9 @@ interface GroundMarker extends PositionedNode {
   kind: 'ground';
   name: string;
   role: GroundSite['role'];
+  /** Есть ли у этой точки прямо сейчас рабочий маршрут/статус: для client —
+   *  найден путь до шлюза, для gateway — не в outage. Красит маркер. */
+  ok: boolean;
 }
 
 /** Спутник-релей выбранного клиента — первый спутник на пути к шлюзу, если
@@ -63,6 +73,8 @@ interface EdgeArc {
 const ISL_COLOR = 'rgba(148, 163, 184, 0.55)';
 const GROUND_LINK_COLOR = 'rgba(56, 189, 248, 0.25)';
 const ROUTE_COLOR = '#facc15';
+const OK_COLOR = '#34d399';
+const BAD_COLOR = '#f87171';
 
 function useContainerSize<T extends HTMLElement>() {
   const ref = useRef<T>(null);
@@ -86,9 +98,24 @@ function useContainerSize<T extends HTMLElement>() {
   return { ref, size };
 }
 
-export function Globe3D({ snapshot, groundSites, routes, selectedClientId }: Globe3DProps) {
+export function Globe3D({
+  snapshot,
+  groundSites,
+  routes,
+  selectedClientId,
+  onSelectSatellite,
+  onSelectGroundSite,
+  onClearSelection,
+}: Globe3DProps) {
   const globeRef = useRef<GlobeMethods | undefined>(undefined);
   const { ref: containerRef, size } = useContainerSize<HTMLDivElement>();
+  // react-globe.gl вызывает onGlobeClick для ЛЮБОГО клика, где его собственный
+  // raycaster не попал в 3D-объект — а наши наземные HTML-маркеры не часть
+  // 3D-сцены, поэтому клик по ним ("попал" через DOM) ОДНОВременно считается
+  // "промахом" внутри globe.gl и тут же сбрасывает выбор (видно как вспышку
+  // карточки, которая сразу исчезает). Этот флаг подавляет один такой
+  // ложный clear сразу после реального выбора спутника/точки.
+  const suppressNextClearRef = useRef(false);
 
   useEffect(() => {
     globeRef.current?.pointOfView({ lat: 65, lng: 60, altitude: 2.2 }, 0);
@@ -96,21 +123,55 @@ export function Globe3D({ snapshot, groundSites, routes, selectedClientId }: Glo
     if (controls) {
       controls.autoRotate = true;
       controls.autoRotateSpeed = 0.25;
+      // Останавливаем авто-вращение, как только пользователь сам тронул
+      // глобус — иначе мелкие спутники "убегают" из-под курсора между
+      // наведением и кликом, из-за чего клики кажутся случайными (через раз).
+      const stopAutoRotate = () => {
+        controls.autoRotate = false;
+      };
+      controls.addEventListener('start', stopAutoRotate);
+      return () => controls.removeEventListener('start', stopAutoRotate);
     }
   }, []);
 
+  // Выбор клиента из выпадающего списка на странице (не клик по глобусу)
+  // центрирует камеру на нём — иначе терминал может быть на невидимой
+  // стороне Земли и подсветку маршрута просто не будет видно.
+  useEffect(() => {
+    if (!selectedClientId) return;
+    const site = groundSites.find((g) => g.id === selectedClientId);
+    if (!site) return;
+    const controls = globeRef.current?.controls();
+    if (controls) controls.autoRotate = false;
+    const currentAltitude = globeRef.current?.pointOfView().altitude;
+    globeRef.current?.pointOfView(
+      { lat: site.lat_deg, lng: site.lon_deg, altitude: currentAltitude ?? 1.6 },
+      1000,
+    );
+    // groundSites — ссылка на scenario.ground_sites: меняется только при
+    // load/update-config, не на каждый тик таймлайна, поэтому эффект не
+    // будет дёргать камеру во время воспроизведения.
+  }, [selectedClientId, groundSites]);
+
   const groundLabels: GroundMarker[] = useMemo(
     () =>
-      groundSites.map((g) => ({
-        kind: 'ground' as const,
-        id: g.id,
-        name: g.name,
-        role: g.role,
-        lat: g.lat_deg,
-        lng: g.lon_deg,
-        alt: 0.01,
-      })),
-    [groundSites],
+      groundSites.map((g) => {
+        const ok =
+          g.role === 'client'
+            ? (routes?.[g.id]?.length ?? 0) > 0
+            : !snapshot?.gateway_status[g.id]?.outage;
+        return {
+          kind: 'ground' as const,
+          id: g.id,
+          name: g.name,
+          role: g.role,
+          lat: g.lat_deg,
+          lng: g.lon_deg,
+          alt: 0.01,
+          ok,
+        };
+      }),
+    [groundSites, routes, snapshot],
   );
 
   const satellites: SatellitePoint[] = useMemo(() => {
@@ -222,19 +283,30 @@ export function Globe3D({ snapshot, groundSites, routes, selectedClientId }: Glo
         showAtmosphere
         atmosphereColor="#38bdf8"
         atmosphereAltitude={0.18}
+        onGlobeClick={() => {
+          if (suppressNextClearRef.current) {
+            suppressNextClearRef.current = false;
+            return;
+          }
+          onClearSelection();
+        }}
         pointsData={satellites}
         pointLat="lat"
         pointLng="lng"
         pointAltitude="alt"
-        pointRadius={(d: object) => ((d as SatellitePoint).id === relayMarker?.id ? 0.6 : 0.35)}
+        pointRadius={(d: object) => ((d as SatellitePoint).id === relayMarker?.id ? 0.7 : 0.45)}
         pointColor={(d: object) => {
           const sat = d as SatellitePoint;
-          if (sat.id === relayMarker?.id) return relayMarker!.connected ? '#34d399' : '#f87171';
+          if (sat.id === relayMarker?.id) return relayMarker!.connected ? OK_COLOR : BAD_COLOR;
           return sat.active ? '#38bdf8' : '#475569';
         }}
         pointLabel={(d) =>
-          `${(d as SatellitePoint).id}${(d as SatellitePoint).active ? '' : ' (не активен)'}`
+          `${(d as SatellitePoint).id}${(d as SatellitePoint).active ? '' : ' (не активен)'} — подробности по клику`
         }
+        onPointClick={(d) => {
+          suppressNextClearRef.current = true;
+          onSelectSatellite((d as SatellitePoint).id);
+        }}
         htmlElementsData={htmlMarkers}
         htmlLat="lat"
         htmlLng="lng"
@@ -245,7 +317,7 @@ export function Globe3D({ snapshot, groundSites, routes, selectedClientId }: Glo
           if (marker.kind === 'relay-satellite') {
             // Цвет и подпись меняются в зависимости от того, есть ли реально
             // рабочая связь через этот спутник, а не просто его видимость.
-            const accent = marker.connected ? '#34d399' : '#f87171';
+            const accent = marker.connected ? OK_COLOR : BAD_COLOR;
             const statusText = marker.connected ? 'связь есть' : 'виден, связи нет';
             el.style.cssText =
               'display:flex;align-items:center;gap:6px;padding:3px 9px;border-radius:9999px;' +
@@ -258,14 +330,19 @@ export function Globe3D({ snapshot, groundSites, routes, selectedClientId }: Glo
             el.innerHTML = `<span style="width:7px;height:7px;border-radius:9999px;background:${accent};flex-shrink:0;box-shadow:0 0 6px 1px ${accent}"></span><span>${marker.id} · ${statusText}</span>`;
             return el;
           }
-          const accent = marker.role === 'gateway' ? '#f87171' : '#34d399';
+          const accent = marker.ok ? OK_COLOR : BAD_COLOR;
           el.style.cssText =
             'display:flex;align-items:center;gap:5px;padding:2px 8px;border-radius:9999px;' +
             'background:rgba(2,6,23,0.82);border:1px solid ' +
             accent +
-            '66;box-shadow:0 1px 4px rgba(0,0,0,0.5);font:500 11px/1.4 system-ui,sans-serif;' +
-            'color:#e2e8f0;white-space:nowrap;pointer-events:none;transform:translate(-8px,-8px);';
+            '88;box-shadow:0 1px 4px rgba(0,0,0,0.5);font:500 11px/1.4 system-ui,sans-serif;' +
+            'color:#e2e8f0;white-space:nowrap;pointer-events:auto;cursor:pointer;transform:translate(-8px,-8px);';
           el.innerHTML = `<span style="width:6px;height:6px;border-radius:9999px;background:${accent};flex-shrink:0"></span><span>${marker.name}</span>`;
+          el.onclick = (ev) => {
+            ev.stopPropagation();
+            suppressNextClearRef.current = true;
+            onSelectGroundSite(marker.id);
+          };
           return el;
         }}
         arcsData={allArcs}
@@ -296,33 +373,26 @@ export function Globe3D({ snapshot, groundSites, routes, selectedClientId }: Glo
         </p>
         <p>
           <span className="inline-block h-2 w-2 rounded-full bg-slate-600 align-middle" />{' '}
-          неактивный/отказал
+          неактивный спутник
         </p>
         <p>
-          <span className="inline-block h-2 w-2 rounded-full bg-rose-400 align-middle" /> шлюз
+          <span className="inline-block h-2 w-2 rounded-full bg-emerald-400 align-middle" /> связь
+          есть (терминал/шлюз)
         </p>
         <p>
-          <span className="inline-block h-2 w-2 rounded-full bg-emerald-400 align-middle" />{' '}
-          клиентский терминал
+          <span className="inline-block h-2 w-2 rounded-full bg-rose-400 align-middle" /> нет связи
+          / в отказе
         </p>
         <p>
           <span className="inline-block h-0.5 w-4 bg-amber-400 align-middle" /> маршрут выбранного
           клиента
         </p>
-        <p className="mt-1 border-t border-slate-700/60 pt-1 text-slate-400">
-          Подпись спутника у выбранного клиента:
-        </p>
-        <p>
-          <span className="inline-block h-2 w-2 rounded-full bg-emerald-400 align-middle" /> связь
-          есть
-        </p>
-        <p>
-          <span className="inline-block h-2 w-2 rounded-full bg-rose-400 align-middle" /> виден, но
-          связи нет
+        <p className="mt-1 border-t border-slate-700/60 pt-1 text-slate-500">
+          Клик по спутнику или наземной точке — подробности
         </p>
       </div>
       <p className="pointer-events-none absolute right-3 top-3 rounded-md bg-slate-950/80 px-2 py-1 text-[11px] text-slate-400">
-        Тяни мышью, чтобы вращать · колесо — зум
+        Вращение — перетаскиванием, масштаб — колесом мыши
       </p>
     </div>
   );

@@ -7,6 +7,7 @@
 
 import Plot from 'react-plotly.js';
 import type { AnalysisResult } from '../types/analysis';
+import { routeStatusLabel } from '../utils/routeStatusLabels';
 
 interface AvailabilityChartProps {
   analysis: AnalysisResult;
@@ -35,7 +36,7 @@ export function AvailabilityChart({
               x: clientIds,
               y: availabilities,
               marker: { color: colors },
-              name: 'availability_pct',
+              name: 'Доступность',
             },
           ]}
           layout={{
@@ -72,8 +73,8 @@ export function AvailabilityChart({
                 x: selected.global_states.map((g) => g.t_s),
                 y: selected.global_states.map((g) => (g.connected ? 1 : 0)),
                 line: { shape: 'hv', color: '#38bdf8' },
-                text: selected.global_states.map((g) => g.status),
-                hovertemplate: 't=%{x}s: %{text}<extra></extra>',
+                text: selected.global_states.map((g) => routeStatusLabel(g.status)),
+                hovertemplate: 'Время: %{x} с — %{text}<extra></extra>',
                 name: selectedClientId,
               },
             ]}
@@ -84,7 +85,7 @@ export function AvailabilityChart({
                 ticktext: ['нет связи', 'есть связь'],
                 range: [-0.1, 1.1],
               },
-              xaxis: { title: { text: 't_s' } },
+              xaxis: { title: { text: 'Время, с' } },
               paper_bgcolor: 'transparent',
               plot_bgcolor: 'transparent',
               font: { color: '#e2e8f0' },
