@@ -105,27 +105,39 @@ def snapshot(s: dict, t_s: float, override_isl_range: float | None = None, custo
     
     elevations = {}
     visible_sats_per_client = {}
-    
+    gateway_status = {}
+
     for g in s.get('ground_sites', []):
         gp = ground_position(g)
         dif = xyz - gp
         dl = np.linalg.norm(dif, axis=1)
         el = np.degrees(np.arcsin(np.clip(dif @ (gp / R) / dl, -1, 1)))
         elevations[g['id']] = {sid: float(el[k]) for k, sid in enumerate(ids) if active[k]}
-        
+
         offline = any((f['gateway_id'] == g['id'] and f['start_s'] <= t_s < f['end_s'] for f in s.get('gateway_outages', [])))
-        vis = (el >= e['min_elevation_deg']) & active & (not offline)
-        
+        # Видимость "по геометрии" -- игнорирует outage. Нужна отдельно от
+        # финального vis (которое уже используется для рёбер графа), чтобы
+        # роутер мог различить "шлюз в outage" от "шлюз геометрически
+        # недостижим" -- это две разные причины обрыва связи (см. router.py).
+        vis_geo = (el >= e['min_elevation_deg']) & active
+        vis = vis_geo & (not offline)
+
         vis_ids = [ids[k] for k in np.where(vis)[0]]
         if g['role'] == 'client':
             visible_sats_per_client[g['id']] = vis_ids
-            
+        if g['role'] == 'gateway':
+            gateway_status[g['id']] = {
+                'outage': bool(offline),
+                'geometrically_reachable': bool(vis_geo.any()),
+            }
+
         edges.extend([[g['id'], sid, float(dl[k])] for k, sid in enumerate(ids) if vis[k]])
-        
+
     return {
         't_s': t_s,
         'satellites': [{'id': sid, 'x_km': float(xyz[k, 0]), 'y_km': float(xyz[k, 1]), 'z_km': float(xyz[k, 2]), 'active': bool(active[k])} for k, sid in enumerate(ids)],
         'edges': edges,
         'elevation_deg': elevations,
-        'visible_sats': visible_sats_per_client
+        'visible_sats': visible_sats_per_client,
+        'gateway_status': gateway_status
     }

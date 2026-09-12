@@ -1,6 +1,9 @@
 from __future__ import annotations
 from geometry import snapshot
 from router import compute_routes_for_snapshot
+from resilience import analyze_resilience as _analyze_resilience
+from optimization import optimize_configuration as _optimize_configuration
+from adapter import to_simulation_result
 
 def run_full_simulation(scenario: dict, override_isl: float | None = None, custom_failures: list | None = None) -> dict:
     env = scenario['environment']
@@ -41,7 +44,7 @@ def run_full_simulation(scenario: dict, override_isl: float | None = None, custo
             
         for c in clients:
             path = routes.get(c, [])
-            status = rebuild_status.get(c, "NO_CLIENT_VISIBILITY")
+            status = rebuild_status.get(c, "NO_VISIBLE_SATELLITE")
             has_connection = len(path) > 0
             
             client_stats[c]["global_states"].append({
@@ -127,56 +130,70 @@ def compare_scenarios(res1: dict, res2: dict) -> dict:
         }
     return comparison
 
-def analyze_robustness(scenario: dict) -> list[dict]:
-    base_res = run_full_simulation(scenario)
-    base_avg_avail = sum(v["availability_pct"] for v in base_res["analysis"].values()) / len(base_res["analysis"])
-    
-    satellites = scenario['design']['satellites']
-    vulnerability_rating = []
-    
-    for sat in satellites:
-        sat_id = sat['id']
-        failure_event = [{"satellite_id": sat_id, "start_s": 0, "end_s": scenario['environment']['horizon_s']}]
-        
-        sim_res = run_full_simulation(scenario, custom_failures=failure_event)
-        sim_avg_avail = sum(v["availability_pct"] for v in sim_res["analysis"].values()) / len(sim_res["analysis"])
-        
-        impact = base_avg_avail - sim_avg_avail
-        vulnerability_rating.append({
-            "satellite_id": sat_id,
-            "plane_id": sat['plane_id'],
-            "availability_drop_pct": impact,
-            "damaged_availability": sim_avg_avail
-        })
-        
-    vulnerability_rating.sort(key=lambda x: x["availability_drop_pct"], reverse=True)
-    return vulnerability_rating
+def _simulate_fn(scenario: dict):
+    """Адаптирует run_full_simulation под контракт SimulationResult,
+    ожидаемый resilience.py/optimization.py (dependency injection)."""
+    return to_simulation_result(run_full_simulation(scenario))
 
-def auto_tune_configuration(scenario: dict) -> dict:
-    best_config = None
-    best_score = -1.0
-    
-    for raan_offset in [0.0, 15.0, 30.0]:
-        for phase_offset in [0.0, 7.5, 15.0]:
-            test_scenario = copy_scenario(scenario)
-            for idx, p in enumerate(test_scenario['design']['planes']):
-                p['raan_deg'] = (p['raan_deg'] + raan_offset) % 360
-                p['phase_deg'] = (p['phase_deg'] + phase_offset) % 360
-                
-            res = run_full_simulation(test_scenario)
-            avg_avail = sum(v["availability_pct"] for v in res["analysis"].values()) / len(res["analysis"])
-            
-            if avg_avail > best_score:
-                best_score = avg_avail
-                best_config = {
-                    "raan_offset_deg": raan_offset,
-                    "phase_offset_deg": phase_offset,
-                    "planes": test_scenario['design']['planes'],
-                    "average_availability_pct": avg_avail
-                }
-                
-    return best_config
 
-def copy_scenario(scenario: dict) -> dict:
-    import copy
-    return copy.deepcopy(scenario)
+def analyze_robustness(scenario: dict, branch: int = 1) -> list[dict]:
+    """Доп. задача 5: рейтинг критичности спутников через resilience.py.
+
+    Ранжирует по падению МИНИМАЛЬНОЙ (не средней) доступности среди
+    клиентов -- худший случай, а не усреднённая картина, которая может
+    маскировать один полностью отрезанный пункт.
+
+    branch=1 -- отказ одного спутника за раз (по умолчанию); branch>=2
+    включает перебор комбинаций и может быть медленным -- см. docstring
+    resilience.analyze_resilience.
+    """
+    report = _analyze_resilience(scenario, simulate_fn=_simulate_fn, branch=branch)
+    return [
+        {
+            "satellite_ids": list(impact.satellite_ids),
+            "worst_case_availability_drop_pct": impact.worst_case_drop * 100,
+            "baseline_min_availability_pct": impact.baseline_min_availability * 100,
+            "degraded_min_availability_pct": impact.degraded_min_availability * 100,
+            "per_client_drop_pct": {k: v * 100 for k, v in impact.per_client_drop.items()},
+            "causes_full_outage": impact.causes_full_outage,
+        }
+        for impact in report.ranking()
+    ]
+
+
+def auto_tune_configuration(
+    scenario: dict,
+    random_samples: int = 8,
+    refine_steps: tuple = (15.0,),
+    top_k_to_refine: int = 2,
+    max_iterations_per_step: int = 6,
+    seed: int | None = 42,
+) -> dict:
+    """Доп. задача 6: автоподбор RAAN/phase через optimization.py.
+
+    Параметры поиска намеренно скромнее дефолтов optimization.py --
+    там budget рассчитан на автономный офлайн-прогон, а здесь это
+    синхронный HTTP-эндпоинт, который должен успеть ответить за разумное
+    время во время демонстрации. Замерено на реальных данных (48
+    спутников, полный горизонт): один прогон simulate_fn ~0.5с, так что
+    держим суммарный бюджет в пределах десятков прогонов.
+    """
+    report = _optimize_configuration(
+        scenario,
+        simulate_fn=_simulate_fn,
+        random_samples=random_samples,
+        refine_steps=refine_steps,
+        top_k_to_refine=top_k_to_refine,
+        max_iterations_per_step=max_iterations_per_step,
+        seed=seed,
+    )
+    best = report.best()
+    return {
+        "planes": best.configuration,
+        "min_availability_pct": best.min_availability * 100,
+        "mean_availability_pct": best.mean_availability * 100,
+        "per_client_availability_pct": {k: v * 100 for k, v in best.per_client_availability.items()},
+        "baseline_min_availability_pct": report.baseline.min_availability * 100,
+        "improvement_over_baseline_pct": report.improvement_over_baseline() * 100,
+        "evaluations_count": len(report.evaluations),
+    }

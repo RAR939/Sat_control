@@ -53,20 +53,22 @@ def evaluate_and_repair_route(snap: dict, client: str, gateway: str, active_sats
     new_path = find_path_bfs(snap['edges'], client, gateway, active_sats)
     if new_path:
         return new_path, "REBUILT"
-        
+
+    # Маршрут не найден -- причина строго в этом порядке (см. CLAUDE.md):
+    # NO_VISIBLE_SATELLITE -> GATEWAY_UNAVAILABLE -> NO_GATEWAY_CONNECTION
+    # -> BROKEN_ISL_NETWORK.
     visible_sats = snap.get('visible_sats', {}).get(client, [])
     if not visible_sats:
-        return [], "NO_CLIENT_VISIBILITY"
-        
-    gateway_visible = False
-    for u, v, _ in snap['edges']:
-        if u == gateway or v == gateway:
-            gateway_visible = True
-            break
-    if not gateway_visible:
-        return [], "GATEWAY_OFFLINE"
-        
-    return [], "ISL_DISCONNECT"
+        return [], "NO_VISIBLE_SATELLITE"
+
+    gw_status = snap.get('gateway_status', {}).get(gateway, {})
+    if gw_status.get('outage'):
+        return [], "GATEWAY_UNAVAILABLE"
+
+    if not gw_status.get('geometrically_reachable'):
+        return [], "NO_GATEWAY_CONNECTION"
+
+    return [], "BROKEN_ISL_NETWORK"
 
 def compute_routes_for_snapshot(snap: dict, clients: list[str], gateway: str, active_sats: set, previous_routes: dict = None) -> tuple[dict, dict]:
     previous_routes = previous_routes or {}

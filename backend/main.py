@@ -115,15 +115,18 @@ def api_analysis():
     return run_full_simulation(current_scenario)
 
 @app.get("/api/robustness", summary="Доп. задача 5: Анализ устойчивости и рейтинг уязвимых спутников")
-def api_robustness():
+def api_robustness(branch: int = 1):
+    """branch -- сколько спутников отказывает одновременно в одном прогоне
+    (1 по умолчанию; branch>=2 переберёт комбинации и может быть медленным
+    на большой группировке -- см. resilience.analyze_resilience)."""
     if not current_scenario:
         raise HTTPException(status_code=400, detail="No scenario loaded")
-    rating = analyze_robustness(current_scenario)
+    rating = analyze_robustness(current_scenario, branch=branch)
     return {"robustness_rating": rating}
 
 @app.get("/api/auto-tune", summary="Доп. задача 6: Автоподбор конфигурации")
-def api_auto_tune():
+def api_auto_tune(random_samples: int = 10, seed: int = 42):
     if not current_scenario:
         raise HTTPException(status_code=400, detail="No scenario loaded")
-    best = auto_tune_configuration(current_scenario)
+    best = auto_tune_configuration(current_scenario, random_samples=random_samples, seed=seed)
     return {"best_configuration": best}
