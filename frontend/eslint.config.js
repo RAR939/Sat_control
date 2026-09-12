@@ -48,6 +48,13 @@ export default [
 
     rules: {
       // --- TypeScript ---
+      // Базовые no-undef/no-unused-vars не понимают TS-синтаксис (ambient
+      // DOM-типы вроде RequestInit, параметры в сигнатурах интерфейсов) и
+      // ложно ругаются на валидный код — отключаем их в пользу
+      // TS-осведомлённых аналогов ниже (стандартная рекомендация
+      // typescript-eslint для .ts/.tsx).
+      'no-undef': 'off',
+      'no-unused-vars': 'off',
       // Запрещаем неиспользуемые переменные (частая причина мусора в коде)
       '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
       // Предупреждаем об использовании `any` — в проекте с типами сценария/маршрута

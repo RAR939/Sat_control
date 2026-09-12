@@ -1,101 +1,96 @@
-import { useState } from 'react';
-import heroImg from './assets/hero.png';
-import reactLogo from './assets/react.svg';
-import viteLogo from './assets/vite.svg';
-import './App.css';
+import { useScenarioStore } from './stores/scenarioStore';
+import { useUiStore } from './stores/uiStore';
+import { isMockMode } from './api/client';
+import { EditorPage } from './pages/EditorPage';
+import { SimulationPage } from './pages/SimulationPage';
+
+function OrbitLogo() {
+  return (
+    <svg viewBox="0 0 32 32" className="h-7 w-7 shrink-0" aria-hidden="true">
+      <circle cx="16" cy="16" r="4" fill="#38bdf8" />
+      <ellipse
+        cx="16"
+        cy="16"
+        rx="14"
+        ry="6"
+        fill="none"
+        stroke="url(#orbit-gradient)"
+        strokeWidth="1.4"
+      />
+      <ellipse
+        cx="16"
+        cy="16"
+        rx="6"
+        ry="14"
+        fill="none"
+        stroke="url(#orbit-gradient)"
+        strokeWidth="1.4"
+        transform="rotate(35 16 16)"
+      />
+      <circle cx="29" cy="16" r="1.6" fill="#818cf8" />
+      <defs>
+        <linearGradient id="orbit-gradient" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#38bdf8" />
+          <stop offset="100%" stopColor="#818cf8" />
+        </linearGradient>
+      </defs>
+    </svg>
+  );
+}
 
 function App() {
-  const [count, setCount] = useState(0);
+  const activeTab = useUiStore((s) => s.activeTab);
+  const setActiveTab = useUiStore((s) => s.setActiveTab);
+  const scenario = useScenarioStore((s) => s.scenario);
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
+    <div className="min-h-screen text-slate-100">
+      <header className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-800/60 bg-slate-950/60 px-6 py-3 backdrop-blur-md">
+        <div className="flex items-center gap-2.5">
+          <OrbitLogo />
+          <div>
+            <h1 className="bg-gradient-to-r from-sky-300 to-indigo-300 bg-clip-text text-lg font-semibold tracking-tight text-transparent">
+              CosmoSats
+            </h1>
+            <p className="text-xs text-slate-400">
+              {scenario ? scenario.meta.title : 'Сценарий не загружен'}
+              {isMockMode && (
+                <span className="ml-2 rounded bg-amber-500/20 px-1.5 py-0.5 text-amber-400">
+                  MOCK
+                </span>
+              )}
+            </p>
+          </div>
         </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button type="button" className="counter" onClick={() => setCount((count) => count + 1)}>
-          Count is {count}
-        </button>
-      </section>
+        <nav className="flex gap-1 rounded-lg border border-slate-800/60 bg-slate-900/60 p-1">
+          <button
+            type="button"
+            onClick={() => setActiveTab('editor')}
+            className={`rounded-md px-3 py-1.5 text-sm transition ${
+              activeTab === 'editor'
+                ? 'bg-gradient-to-r from-sky-500 to-indigo-500 text-white shadow shadow-sky-500/30'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Сценарный редактор
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('simulation')}
+            disabled={!scenario}
+            className={`rounded-md px-3 py-1.5 text-sm transition disabled:cursor-not-allowed disabled:opacity-40 ${
+              activeTab === 'simulation'
+                ? 'bg-gradient-to-r from-sky-500 to-indigo-500 text-white shadow shadow-sky-500/30'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Симуляция / визуализация
+          </button>
+        </nav>
+      </header>
 
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg className="button-icon" role="presentation" aria-hidden="true">
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg className="button-icon" role="presentation" aria-hidden="true">
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg className="button-icon" role="presentation" aria-hidden="true">
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg className="button-icon" role="presentation" aria-hidden="true">
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+      <main className="p-6">{activeTab === 'editor' ? <EditorPage /> : <SimulationPage />}</main>
+    </div>
   );
 }
 

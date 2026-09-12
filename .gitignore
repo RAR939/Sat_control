@@ -58,6 +58,11 @@ Desktop.ini
 # --- TypeScript ---
 *.tsbuildinfo
 
+# --- Python (backend, только для локального запуска/справки) ---
+backend/venv/
+backend/__pycache__/
+*.pyc
+
 # --- Разное ---
 *.local
 .temp/
